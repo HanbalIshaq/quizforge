@@ -22,6 +22,7 @@
   let myName = '';
   let currentQuestion = null;
   let answered = false;
+  let mySessionId = null;
 
   function show(el) { [nameGate, waiting, qPanel, ended].forEach(e => e.classList.add('hidden')); el.classList.remove('hidden'); }
 
@@ -33,7 +34,8 @@
   };
   nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') nameBtn.click(); });
 
-  socket.on('student_joined', () => {
+  socket.on('student_joined', (data) => {
+    if (data && data.session_id) mySessionId = data.session_id;
     waitingName.textContent = 'You\'re in as ' + myName;
     show(waiting);
   });
@@ -103,7 +105,7 @@
     if (answered || !currentQuestion) return;
     answered = true;
     socket.emit('student_answer', {
-      session_id: undefined,  // server uses room membership
+      session_id: mySessionId,
       question_id: currentQuestion.id,
       answer: value,
     });

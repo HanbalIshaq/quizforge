@@ -40,6 +40,9 @@ LIVE_LOCK = threading.Lock()
 
 REQUIRE_APPROVAL = os.environ.get("REQUIRE_APPROVAL", "").lower() in ("1", "true", "yes")
 
+# Maps a socket sid to the live session_id it joined, for routing answers / cleanup
+SID_TO_SESSION: dict[str, int] = {}
+
 
 # ---------- helpers ----------
 
@@ -1028,6 +1031,7 @@ def on_join_host(data):
         state["host_sids"].add(request.sid)
         state["owner_uid"] = uid
         state["quiz_kind"] = s["quiz_kind"]
+        SID_TO_SESSION[request.sid] = session_id
     emit("host_state", {
         "session": sess,
         "participants": [
@@ -1067,6 +1071,7 @@ def on_join_student(data):
     state = LIVE_STATE[session_id]
     with LIVE_LOCK:
         state["participants"][request.sid] = {"name": name, "score": 0}
+        SID_TO_SESSION[request.sid] = session_id
     emit("student_joined", {"name": name, "session_id": session_id})
     emit("participants_update", {
         "participants": [
@@ -1104,7 +1109,10 @@ def on_host_next(data):
         if not questions:
             emit("error_msg", {"msg": "This quiz has no questions to show."})
             return
-        next_idx = (s["current_question_index"] or -1) + 1
+        cur_idx = s["current_question_index"]
+        if cur_idx is None:
+            cur_idx = -1
+        next_idx = cur_idx + 1
         if next_idx >= len(questions):
             conn.execute(
                 "UPDATE live_sessions SET status='finished', ended_at=? WHERE id=?",
@@ -1194,9 +1202,13 @@ def on_host_end(data):
 
 @socketio.on("student_answer")
 def on_student_answer(data):
-    session_id = int(data.get("session_id") or 0)
+    # Trust the server-side sid → session_id mapping (the client value can't be relied on)
+    session_id = SID_TO_SESSION.get(request.sid) or int(data.get("session_id") or 0)
     qid = int(data.get("question_id") or 0)
     answer = data.get("answer")
+    if not session_id:
+        emit("error_msg", {"msg": "Lost connection to the live session — please refresh."})
+        return
     sess, questions = _load_live(session_id)
     if not sess or sess["status"] != "running":
         return
@@ -1230,6 +1242,8 @@ def on_student_answer(data):
 @socketio.on("disconnect")
 def on_disconnect():
     sid = request.sid
+    with LIVE_LOCK:
+        SID_TO_SESSION.pop(sid, None)
     for session_id, state in list(LIVE_STATE.items()):
         with LIVE_LOCK:
             state.get("host_sids", set()).discard(sid)
