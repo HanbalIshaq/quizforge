@@ -20,7 +20,11 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     name TEXT,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    is_super_admin INTEGER DEFAULT 0,
+    is_approved INTEGER DEFAULT 1,
+    is_suspended INTEGER DEFAULT 0,
+    last_login_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS quizzes (
@@ -101,8 +105,19 @@ CREATE INDEX IF NOT EXISTS idx_live_quiz ON live_sessions(quiz_id);
 def init_db():
     conn = get_conn()
     conn.executescript(SCHEMA)
+    # Lightweight migrations for older DBs
+    _ensure_column(conn, "users", "is_super_admin", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "users", "is_approved", "INTEGER DEFAULT 1")
+    _ensure_column(conn, "users", "is_suspended", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "users", "last_login_at", "INTEGER")
     conn.commit()
     conn.close()
+
+
+def _ensure_column(conn, table: str, column: str, type_decl: str) -> None:
+    cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {type_decl}")
 
 
 def now_ts() -> int:

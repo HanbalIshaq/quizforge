@@ -90,7 +90,20 @@
       </li>`).join('');
   }
 
+  socket.on('error_msg', (data) => {
+    const el = document.getElementById('error-banner');
+    if (el) {
+      el.textContent = data.msg || 'Unknown error';
+      el.classList.remove('hidden');
+    } else {
+      alert(data.msg || 'Error');
+    }
+  });
+
   socket.on('host_state', (data) => {
+    // Hide any previous error
+    const eb = document.getElementById('error-banner');
+    if (eb) eb.classList.add('hidden');
     if (data.participants) renderParticipants(data.participants);
   });
   socket.on('participants_update', (data) => renderParticipants(data.participants));

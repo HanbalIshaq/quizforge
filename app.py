@@ -32,8 +32,13 @@ LIVE_STATE: dict[int, dict] = defaultdict(lambda: {
     "participants": {},          # sid -> {"name": str, "score": 0}
     "answers_per_q": defaultdict(dict),  # qid -> {sid: answer}
     "revealed": set(),           # qids revealed
+    "host_sids": set(),          # socket sids authorized as host of this session
+    "owner_uid": None,           # the teacher who owns this session
+    "quiz_kind": "exam",         # exam | poll | survey
 })
 LIVE_LOCK = threading.Lock()
+
+REQUIRE_APPROVAL = os.environ.get("REQUIRE_APPROVAL", "").lower() in ("1", "true", "yes")
 
 
 # ---------- helpers ----------
@@ -44,7 +49,10 @@ def current_user():
         return None
     conn = db.get_conn()
     try:
-        row = conn.execute("SELECT id, email, name FROM users WHERE id=?", (uid,)).fetchone()
+        row = conn.execute(
+            "SELECT id, email, name, is_super_admin, is_approved, is_suspended FROM users WHERE id=?",
+            (uid,),
+        ).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -55,6 +63,16 @@ def login_required(fn):
     def wrapper(*args, **kwargs):
         if not session.get("uid"):
             return redirect(url_for("login", next=request.path))
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def super_admin_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        u = current_user()
+        if not u or not u.get("is_super_admin"):
+            abort(403)
         return fn(*args, **kwargs)
     return wrapper
 
@@ -104,13 +122,24 @@ def register():
                 flash("Email already registered.", "error")
                 return render_template("register.html", form=request.form)
             ph = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+            user_count = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
+            is_first = user_count == 0
+            is_super = 1 if is_first else 0
+            is_approved = 1 if (is_first or not REQUIRE_APPROVAL) else 0
             cur = conn.execute(
-                "INSERT INTO users(email, password_hash, name, created_at) VALUES(?,?,?,?)",
-                (email, ph, name, db.now_ts()),
+                """INSERT INTO users(email, password_hash, name, created_at,
+                                     is_super_admin, is_approved)
+                   VALUES(?,?,?,?,?,?)""",
+                (email, ph, name, db.now_ts(), is_super, is_approved),
             )
             conn.commit()
-            session["uid"] = cur.lastrowid
-            return redirect(url_for("admin_dashboard"))
+            if is_approved:
+                session["uid"] = cur.lastrowid
+                if is_first:
+                    flash("Welcome! You are the site Super Admin.", "success")
+                return redirect(url_for("admin_dashboard"))
+            flash("Account created — pending admin approval. You'll be able to sign in once approved.", "success")
+            return redirect(url_for("login"))
         finally:
             conn.close()
     return render_template("register.html", form={})
@@ -127,7 +156,15 @@ def login():
             if not row or not bcrypt.checkpw(password.encode(), row["password_hash"].encode()):
                 flash("Invalid email or password.", "error")
                 return render_template("login.html", form=request.form)
+            if row["is_suspended"]:
+                flash("This account is suspended. Contact the site administrator.", "error")
+                return render_template("login.html", form=request.form)
+            if not row["is_approved"]:
+                flash("Your account is awaiting administrator approval.", "error")
+                return render_template("login.html", form=request.form)
             session["uid"] = row["id"]
+            conn.execute("UPDATE users SET last_login_at=? WHERE id=?", (db.now_ts(), row["id"]))
+            conn.commit()
             nxt = request.args.get("next") or url_for("admin_dashboard")
             return redirect(nxt)
         finally:
@@ -139,6 +176,113 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("home"))
+
+
+# ---------- super-admin: site management ----------
+
+@app.route("/admin/site")
+@login_required
+@super_admin_required
+def site_dashboard():
+    conn = db.get_conn()
+    try:
+        stats = {
+            "users": conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"],
+            "users_pending": conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_approved=0").fetchone()["c"],
+            "users_suspended": conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_suspended=1").fetchone()["c"],
+            "quizzes": conn.execute("SELECT COUNT(*) AS c FROM quizzes").fetchone()["c"],
+            "questions": conn.execute("SELECT COUNT(*) AS c FROM questions").fetchone()["c"],
+            "attempts": conn.execute(
+                "SELECT COUNT(*) AS c FROM attempts WHERE submitted_at IS NOT NULL"
+            ).fetchone()["c"],
+            "attempts_24h": conn.execute(
+                "SELECT COUNT(*) AS c FROM attempts WHERE submitted_at >= ?",
+                (db.now_ts() - 86400,),
+            ).fetchone()["c"],
+            "live_active": conn.execute(
+                "SELECT COUNT(*) AS c FROM live_sessions WHERE status IN ('waiting','running')"
+            ).fetchone()["c"],
+            "live_total": conn.execute("SELECT COUNT(*) AS c FROM live_sessions").fetchone()["c"],
+        }
+        recent_users = [dict(r) for r in conn.execute(
+            "SELECT id, email, name, created_at, last_login_at, is_super_admin, is_approved, is_suspended "
+            "FROM users ORDER BY created_at DESC LIMIT 10"
+        ).fetchall()]
+        recent_quizzes = [dict(r) for r in conn.execute(
+            """SELECT q.id, q.title, q.kind, q.share_code, q.created_at, u.email AS owner_email
+               FROM quizzes q JOIN users u ON u.id=q.user_id
+               ORDER BY q.created_at DESC LIMIT 10"""
+        ).fetchall()]
+        recent_attempts = [dict(r) for r in conn.execute(
+            """SELECT a.id, a.student_name, a.student_email, a.percentage, a.submitted_at,
+                      q.title AS quiz_title, u.email AS owner_email
+               FROM attempts a
+               JOIN quizzes q ON q.id=a.quiz_id
+               JOIN users u ON u.id=q.user_id
+               WHERE a.submitted_at IS NOT NULL
+               ORDER BY a.submitted_at DESC LIMIT 15"""
+        ).fetchall()]
+        return render_template(
+            "admin/site_dashboard.html",
+            stats=stats,
+            recent_users=recent_users,
+            recent_quizzes=recent_quizzes,
+            recent_attempts=recent_attempts,
+            require_approval=REQUIRE_APPROVAL,
+        )
+    finally:
+        conn.close()
+
+
+@app.route("/admin/site/users")
+@login_required
+@super_admin_required
+def site_users():
+    conn = db.get_conn()
+    try:
+        users = [dict(r) for r in conn.execute(
+            """SELECT u.*,
+                      (SELECT COUNT(*) FROM quizzes WHERE user_id=u.id) AS n_q
+               FROM users u
+               ORDER BY u.created_at DESC"""
+        ).fetchall()]
+        return render_template("admin/site_users.html", users=users)
+    finally:
+        conn.close()
+
+
+@app.route("/admin/site/users/<int:user_id>/<string:action>", methods=["POST"])
+@login_required
+@super_admin_required
+def site_user_action(user_id, action):
+    conn = db.get_conn()
+    try:
+        target = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+        if not target:
+            abort(404)
+        # Prevent locking ourselves out
+        if user_id == session.get("uid") and action in ("suspend", "demote"):
+            flash("You cannot perform this action on your own account.", "error")
+            return redirect(url_for("site_users"))
+        if action == "approve":
+            conn.execute("UPDATE users SET is_approved=1 WHERE id=?", (user_id,))
+        elif action == "suspend":
+            conn.execute("UPDATE users SET is_suspended=1 WHERE id=?", (user_id,))
+        elif action == "unsuspend":
+            conn.execute("UPDATE users SET is_suspended=0 WHERE id=?", (user_id,))
+        elif action == "promote":
+            conn.execute("UPDATE users SET is_super_admin=1 WHERE id=?", (user_id,))
+        elif action == "demote":
+            conn.execute("UPDATE users SET is_super_admin=0 WHERE id=?", (user_id,))
+        elif action == "delete":
+            conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+        else:
+            abort(400)
+        conn.commit()
+        flash(f"Action '{action}' applied to {target['email']}.", "success")
+        return redirect(url_for("site_users"))
+    finally:
+        conn.close()
 
 
 # ---------- admin: dashboard + CRUD ----------
@@ -166,13 +310,27 @@ def admin_dashboard():
 def quiz_new():
     title = (request.form.get("title") or "Untitled quiz").strip()
     kind = (request.form.get("kind") or "exam").strip()
+    if kind not in ("exam", "poll", "survey"):
+        kind = "exam"
     code = db.unique_code("quizzes", "share_code", 7)
+    # Auto-defaults per kind so behavior is meaningfully different
+    if kind == "exam":
+        defaults = dict(require_name=1, require_email=0, show_correct_answers=1, randomize_questions=0)
+    elif kind == "poll":
+        defaults = dict(require_name=1, require_email=0, show_correct_answers=0, randomize_questions=0)
+    else:  # survey
+        defaults = dict(require_name=0, require_email=0, show_correct_answers=0, randomize_questions=0)
     conn = db.get_conn()
     try:
         cur = conn.execute(
-            """INSERT INTO quizzes(user_id, title, share_code, kind, created_at, updated_at)
-               VALUES(?,?,?,?,?,?)""",
-            (session["uid"], title, code, kind, db.now_ts(), db.now_ts()),
+            """INSERT INTO quizzes(user_id, title, share_code, kind, created_at, updated_at,
+                                   require_name, require_email, show_correct_answers, randomize_questions)
+               VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                session["uid"], title, code, kind, db.now_ts(), db.now_ts(),
+                defaults["require_name"], defaults["require_email"],
+                defaults["show_correct_answers"], defaults["randomize_questions"],
+            ),
         )
         conn.commit()
         return redirect(url_for("quiz_edit", quiz_id=cur.lastrowid))
@@ -658,7 +816,13 @@ def take_quiz(code):
             q["options"] = json.loads(q["options"] or "[]")
             q["correct_answers"] = json.loads(q["correct_answers"] or "[]")
         if request.method == "POST":
-            student_name = (request.form.get("student_name") or "Anonymous").strip()
+            is_scored = quiz["kind"] == "exam"
+            is_anonymous = quiz["kind"] == "survey"
+            student_name = (request.form.get("student_name") or "").strip()
+            if is_anonymous and not student_name:
+                student_name = "Anonymous"
+            elif not student_name:
+                student_name = "Anonymous"
             student_email = (request.form.get("student_email") or "").strip()
             now = db.now_ts()
             cur = conn.execute(
@@ -673,9 +837,11 @@ def take_quiz(code):
             for q in questions:
                 max_pts += float(q["points"] or 1)
                 raw = request.form.getlist(f"q_{q['id']}")
-                # parse raw based on type
                 value = _parse_submitted(q["type"], raw)
-                is_correct, pts, manual = grading.grade_answer(q, value)
+                if is_scored:
+                    is_correct, pts, manual = grading.grade_answer(q, value)
+                else:
+                    is_correct, pts, manual = (None, 0.0, False)
                 if manual:
                     needs_grading = 1
                 if is_correct:
@@ -690,11 +856,17 @@ def take_quiz(code):
                         0 if manual else 1,
                     ),
                 )
-            pct = (total_pts / max_pts * 100) if max_pts else 0
-            conn.execute(
-                "UPDATE attempts SET score=?, max_score=?, percentage=?, needs_grading=? WHERE id=?",
-                (total_pts, max_pts, pct, needs_grading, attempt_id),
-            )
+            if is_scored:
+                pct = (total_pts / max_pts * 100) if max_pts else 0
+                conn.execute(
+                    "UPDATE attempts SET score=?, max_score=?, percentage=?, needs_grading=? WHERE id=?",
+                    (total_pts, max_pts, pct, needs_grading, attempt_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE attempts SET score=0, max_score=0, percentage=0, needs_grading=0 WHERE id=?",
+                    (attempt_id,),
+                )
             conn.commit()
             return redirect(url_for("quiz_result", code=code, attempt_id=attempt_id))
         return render_template("student/quiz.html", quiz=dict(quiz), questions=questions)
@@ -831,26 +1003,31 @@ def on_join_host(data):
     # Validate host owns it
     uid = session.get("uid")
     if not uid:
-        emit("error_msg", {"msg": "Not logged in"})
+        emit("error_msg", {"msg": "Your login session expired — refresh and sign in again."})
         return
     conn = db.get_conn()
     try:
         s = conn.execute(
-            """SELECT ls.* FROM live_sessions ls
+            """SELECT ls.*, q.kind AS quiz_kind FROM live_sessions ls
                JOIN quizzes q ON q.id = ls.quiz_id
                WHERE ls.id=? AND q.user_id=?""",
             (session_id, uid),
         ).fetchone()
         if not s:
-            emit("error_msg", {"msg": "Not your session"})
+            emit("error_msg", {
+                "msg": "Live session not found. (If the server restarted, please start a new live session from the quiz editor.)"
+            })
             return
     finally:
         conn.close()
     join_room(f"live_{session_id}")
     join_room(f"host_{session_id}")
-    # Send current state
     sess, questions = _load_live(session_id)
     state = LIVE_STATE[session_id]
+    with LIVE_LOCK:
+        state["host_sids"].add(request.sid)
+        state["owner_uid"] = uid
+        state["quiz_kind"] = s["quiz_kind"]
     emit("host_state", {
         "session": sess,
         "participants": [
@@ -858,7 +1035,14 @@ def on_join_host(data):
             for sid, p in state["participants"].items()
         ],
         "total_questions": len(questions),
+        "quiz_kind": s["quiz_kind"],
     })
+
+
+def _is_host_sid(session_id: int) -> bool:
+    """Authorize a SocketIO event as coming from a verified host."""
+    state = LIVE_STATE.get(session_id)
+    return bool(state) and request.sid in state.get("host_sids", set())
 
 
 @socketio.on("join_student")
@@ -900,18 +1084,16 @@ def on_join_student(data):
 @socketio.on("host_next")
 def on_host_next(data):
     session_id = int(data.get("session_id") or 0)
-    uid = session.get("uid")
-    if not uid:
+    if not _is_host_sid(session_id):
+        emit("error_msg", {"msg": "Host authorization lost — please refresh the page."})
         return
     conn = db.get_conn()
     try:
-        s = conn.execute(
-            """SELECT ls.* FROM live_sessions ls
-               JOIN quizzes q ON q.id = ls.quiz_id
-               WHERE ls.id=? AND q.user_id=?""",
-            (session_id, uid),
-        ).fetchone()
+        s = conn.execute("SELECT * FROM live_sessions WHERE id=?", (session_id,)).fetchone()
         if not s:
+            emit("error_msg", {
+                "msg": "This live session no longer exists. (Server may have restarted — start a new live session.)"
+            })
             return
         questions = [dict(r) for r in conn.execute(
             "SELECT * FROM questions WHERE quiz_id=? ORDER BY position", (s["quiz_id"],)
@@ -919,6 +1101,9 @@ def on_host_next(data):
         for q in questions:
             q["options"] = json.loads(q["options"] or "[]")
             q["correct_answers"] = json.loads(q["correct_answers"] or "[]")
+        if not questions:
+            emit("error_msg", {"msg": "This quiz has no questions to show."})
+            return
         next_idx = (s["current_question_index"] or -1) + 1
         if next_idx >= len(questions):
             conn.execute(
@@ -926,7 +1111,15 @@ def on_host_next(data):
                 (db.now_ts(), session_id),
             )
             conn.commit()
-            socketio.emit("session_ended", {"session_id": session_id}, room=f"live_{session_id}")
+            state = LIVE_STATE[session_id]
+            leaderboard = sorted(
+                [{"name": p["name"], "score": p["score"]} for p in state["participants"].values()],
+                key=lambda x: -x["score"],
+            )[:50]
+            socketio.emit("session_ended", {
+                "session_id": session_id,
+                "leaderboard": leaderboard,
+            }, room=f"live_{session_id}")
             return
         conn.execute(
             "UPDATE live_sessions SET status='running', current_question_index=? WHERE id=?",
@@ -938,6 +1131,7 @@ def on_host_next(data):
             "question": _question_payload(q),
             "index": next_idx,
             "total": len(questions),
+            "quiz_kind": LIVE_STATE[session_id].get("quiz_kind", "exam"),
         }
         socketio.emit("show_question", payload, room=f"live_{session_id}")
     finally:
@@ -947,8 +1141,8 @@ def on_host_next(data):
 @socketio.on("host_reveal")
 def on_host_reveal(data):
     session_id = int(data.get("session_id") or 0)
-    uid = session.get("uid")
-    if not uid:
+    if not _is_host_sid(session_id):
+        emit("error_msg", {"msg": "Host authorization lost — please refresh the page."})
         return
     sess, questions = _load_live(session_id)
     if not sess:
@@ -978,15 +1172,14 @@ def on_host_reveal(data):
 @socketio.on("host_end")
 def on_host_end(data):
     session_id = int(data.get("session_id") or 0)
-    uid = session.get("uid")
-    if not uid:
+    if not _is_host_sid(session_id):
+        emit("error_msg", {"msg": "Host authorization lost — please refresh the page."})
         return
     conn = db.get_conn()
     try:
         conn.execute(
-            """UPDATE live_sessions SET status='finished', ended_at=?
-               WHERE id=? AND quiz_id IN (SELECT id FROM quizzes WHERE user_id=?)""",
-            (db.now_ts(), session_id, uid),
+            "UPDATE live_sessions SET status='finished', ended_at=? WHERE id=?",
+            (db.now_ts(), session_id),
         )
         conn.commit()
     finally:
@@ -1038,6 +1231,8 @@ def on_student_answer(data):
 def on_disconnect():
     sid = request.sid
     for session_id, state in list(LIVE_STATE.items()):
+        with LIVE_LOCK:
+            state.get("host_sids", set()).discard(sid)
         if sid in state["participants"]:
             with LIVE_LOCK:
                 state["participants"].pop(sid, None)

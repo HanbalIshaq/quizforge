@@ -2,12 +2,23 @@
 {% block title %}{{ quiz.title }}{% endblock %}
 {% block content %}
 <div class="max-w-3xl mx-auto">
-  <h1 class="text-3xl font-bold mb-1">{{ quiz.title }}</h1>
+  <div class="flex items-center gap-2 mb-1">
+    <h1 class="text-3xl font-bold">{{ quiz.title }}</h1>
+    {% if quiz.kind == 'poll' %}
+      <span class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800">Poll</span>
+    {% elif quiz.kind == 'survey' %}
+      <span class="text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-800">Anonymous Survey</span>
+    {% else %}
+      <span class="text-xs px-2 py-1 rounded bg-brand-100 text-brand-800">Exam</span>
+    {% endif %}
+  </div>
   {% if quiz.description %}<p class="text-slate-600 mb-4">{{ quiz.description }}</p>{% endif %}
   <p class="text-sm text-slate-500 mb-6">
     {{ questions|length }} question(s)
-    {% if quiz.time_limit_seconds %} &middot; {{ (quiz.time_limit_seconds // 60) }} min limit{% endif %}
-    {% if quiz.pass_mark %} &middot; pass mark {{ quiz.pass_mark }}%{% endif %}
+    {% if quiz.kind == 'exam' and quiz.time_limit_seconds %} &middot; {{ (quiz.time_limit_seconds // 60) }} min limit{% endif %}
+    {% if quiz.kind == 'exam' and quiz.pass_mark %} &middot; pass mark {{ quiz.pass_mark }}%{% endif %}
+    {% if quiz.kind == 'survey' %} &middot; your answers are anonymous{% endif %}
+    {% if quiz.kind == 'poll' %} &middot; no grading — your opinion counts{% endif %}
   </p>
 
   <form method="post" class="space-y-4" id="quiz-form">

@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Site admin · QuizForge{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold">Site administration</h1>
+    <p class="text-sm text-slate-500">Platform stats and management.</p>
+  </div>
+  <div class="flex gap-2">
+    <a href="{{ url_for('site_users') }}" class="px-3 py-2 bg-white border border-slate-300 rounded text-sm hover:bg-slate-100">Manage users</a>
+    <a href="{{ url_for('admin_dashboard') }}" class="px-3 py-2 bg-brand-600 text-white rounded text-sm hover:bg-brand-700">My quizzes</a>
+  </div>
+</div>
+
+<section class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+  {% for label, value, color in [
+    ('Total users', stats.users, 'brand'),
+    ('Pending approval', stats.users_pending, 'amber'),
+    ('Suspended', stats.users_suspended, 'red'),
+    ('Quizzes', stats.quizzes, 'emerald'),
+    ('Questions', stats.questions, 'slate'),
+    ('Total attempts', stats.attempts, 'emerald'),
+    ('Attempts (24h)', stats.attempts_24h, 'brand'),
+    ('Live sessions active', stats.live_active, 'amber'),
+  ] %}
+    <div class="bg-white border border-slate-200 rounded-lg p-4">
+      <p class="text-xs text-slate-500">{{ label }}</p>
+      <p class="text-2xl font-bold mt-1 text-{{ color }}-600">{{ value }}</p>
+    </div>
+  {% endfor %}
+</section>
+
+{% if require_approval %}
+  <div class="mb-6 px-4 py-2 rounded border bg-amber-50 border-amber-200 text-amber-800 text-sm">
+    <b>Approval mode is ON.</b> New signups must be approved by you before they can log in.
+    (Controlled by <code>REQUIRE_APPROVAL</code> env var.)
+  </div>
+{% endif %}
+
+<div class="grid lg:grid-cols-2 gap-6">
+  <section class="bg-white border border-slate-200 rounded-lg overflow-hidden">
+    <h2 class="px-4 py-3 font-semibold border-b border-slate-200">Recent signups</h2>
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-left text-slate-600">
+        <tr><th class="px-3 py-2">Email</th><th class="px-3 py-2">Status</th><th class="px-3 py-2">Joined</th></tr>
+      </thead>
+      <tbody>
+        {% for u in recent_users %}
+          <tr class="border-t border-slate-200">
+            <td class="px-3 py-2">{{ u.email }} {% if u.is_super_admin %}<span class="text-xs px-1.5 py-0.5 bg-brand-100 text-brand-700 rounded">SA</span>{% endif %}</td>
+            <td class="px-3 py-2">
+              {% if u.is_suspended %}<span class="text-red-700">Suspended</span>
+              {% elif not u.is_approved %}<span class="text-amber-700">Pending</span>
+              {% else %}<span class="text-emerald-700">Active</span>{% endif %}
+            </td>
+            <td class="px-3 py-2 text-slate-500">{{ fmt_ts(u.created_at) }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3" class="px-3 py-6 text-center text-slate-500">No users yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="bg-white border border-slate-200 rounded-lg overflow-hidden">
+    <h2 class="px-4 py-3 font-semibold border-b border-slate-200">Recent quizzes</h2>
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-left text-slate-600">
+        <tr><th class="px-3 py-2">Title</th><th class="px-3 py-2">Kind</th><th class="px-3 py-2">Owner</th></tr>
+      </thead>
+      <tbody>
+        {% for q in recent_quizzes %}
+          <tr class="border-t border-slate-200">
+            <td class="px-3 py-2">{{ q.title }}</td>
+            <td class="px-3 py-2 capitalize">{{ q.kind }}</td>
+            <td class="px-3 py-2 text-slate-500">{{ q.owner_email }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3" class="px-3 py-6 text-center text-slate-500">No quizzes yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="lg:col-span-2 bg-white border border-slate-200 rounded-lg overflow-hidden">
+    <h2 class="px-4 py-3 font-semibold border-b border-slate-200">Recent attempts</h2>
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-left text-slate-600">
+        <tr>
+          <th class="px-3 py-2">Student</th>
+          <th class="px-3 py-2">Quiz</th>
+          <th class="px-3 py-2">Owner</th>
+          <th class="px-3 py-2">Score</th>
+          <th class="px-3 py-2">Submitted</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in recent_attempts %}
+          <tr class="border-t border-slate-200">
+            <td class="px-3 py-2">{{ a.student_name or 'Anonymous' }}</td>
+            <td class="px-3 py-2">{{ a.quiz_title }}</td>
+            <td class="px-3 py-2 text-slate-500">{{ a.owner_email }}</td>
+            <td class="px-3 py-2">{{ '%.0f' % (a.percentage or 0) }}%</td>
+            <td class="px-3 py-2 text-slate-500">{{ fmt_ts(a.submitted_at) }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5" class="px-3 py-6 text-center text-slate-500">No attempts yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Users · Site admin{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <a href="{{ url_for('site_dashboard') }}" class="text-sm text-slate-500 hover:text-brand-700">← Site admin</a>
+    <h1 class="text-2xl font-bold mt-1">Users</h1>
+  </div>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-lg overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-slate-50 text-left text-slate-600">
+      <tr>
+        <th class="px-4 py-2">Email</th>
+        <th class="px-4 py-2">Name</th>
+        <th class="px-4 py-2">Status</th>
+        <th class="px-4 py-2">Quizzes</th>
+        <th class="px-4 py-2">Joined</th>
+        <th class="px-4 py-2">Last login</th>
+        <th class="px-4 py-2"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+        <tr class="border-t border-slate-200">
+          <td class="px-4 py-2">
+            {{ u.email }}
+            {% if u.is_super_admin %}<span class="ml-1 text-xs px-1.5 py-0.5 bg-brand-100 text-brand-700 rounded">Super admin</span>{% endif %}
+          </td>
+          <td class="px-4 py-2 text-slate-600">{{ u.name or '' }}</td>
+          <td class="px-4 py-2">
+            {% if u.is_suspended %}<span class="text-red-700">Suspended</span>
+            {% elif not u.is_approved %}<span class="text-amber-700">Pending</span>
+            {% else %}<span class="text-emerald-700">Active</span>{% endif %}
+          </td>
+          <td class="px-4 py-2">{{ u.n_q }}</td>
+          <td class="px-4 py-2 text-slate-500">{{ fmt_ts(u.created_at) }}</td>
+          <td class="px-4 py-2 text-slate-500">{{ fmt_ts(u.last_login_at) }}</td>
+          <td class="px-4 py-2 text-right whitespace-nowrap space-x-1">
+            {% if not u.is_approved %}
+              <form method="post" action="{{ url_for('site_user_action', user_id=u.id, action='approve') }}" class="inline">
+                <button class="text-xs px-2 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-700">Approve</button>
+              </form>
+            {% endif %}
+            {% if u.is_suspended %}
+              <form method="post" action="{{ url_for('site_user_action', user_id=u.id, action='unsuspend') }}" class="inline">
+                <button class="text-xs px-2 py-1 bg-slate-200 rounded hover:bg-slate-300">Unsuspend</button>
+              </form>
+            {% else %}
+              <form method="post" action="{{ url_for('site_user_action', user_id=u.id, action='suspend') }}" class="inline"
+                    onsubmit="return confirm('Suspend this user? They will be unable to log in.')">
+                <button class="text-xs px-2 py-1 bg-amber-100 text-amber-800 rounded hover:bg-amber-200">Suspend</button>
+              </form>
+            {% endif %}
+            {% if u.is_super_admin %}
+              <form method="post" action="{{ url_for('site_user_action', user_id=u.id, action='demote') }}" class="inline">
+                <button class="text-xs px-2 py-1 bg-slate-200 rounded hover:bg-slate-300">Demote</button>
+              </form>
+            {% else %}
+              <form method="post" action="{{ url_for('site_user_action', user_id=u.id, action='promote') }}" class="inline">
+                <button class="text-xs px-2 py-1 bg-brand-100 text-brand-800 rounded hover:bg-brand-200">Make admin</button>
+              </form>
+            {% endif %}
+            <form method="post" action="{{ url_for('site_user_action', user_id=u.id, action='delete') }}" class="inline"
+                  onsubmit="return confirm('Delete this user AND all their quizzes/responses? Cannot be undone.')">
+              <button class="text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100">Delete</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="px-4 py-8 text-center text-slate-500">No users.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
