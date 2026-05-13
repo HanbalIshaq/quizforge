@@ -1,5 +1,5 @@
 """
-Database abstraction layer for QuizForge.
+Database abstraction layer for QuizForge. (Persistent storage live since 2026-05-14.)
 
 Picks the engine at startup from the DATABASE_URL env var:
   - postgresql://user:pass@host:port/dbname  -> PostgreSQL (production)
