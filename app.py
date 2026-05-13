@@ -428,22 +428,23 @@ def question_save(quiz_id):
         correct = payload.get("correct_answers") or []
         points = int(payload.get("points") or 1)
         explanation = payload.get("explanation") or ""
+        time_limit = max(0, int(payload.get("time_limit_seconds") or 0))
         if not text:
             return jsonify({"ok": False, "error": "Question text required"}), 400
         if qid:
             conn.execute(
-                """UPDATE questions SET type=?, text=?, options=?, correct_answers=?, points=?, explanation=?
+                """UPDATE questions SET type=?, text=?, options=?, correct_answers=?, points=?, explanation=?, time_limit_seconds=?
                    WHERE id=? AND quiz_id=?""",
-                (qtype, text, json.dumps(options), json.dumps(correct), points, explanation, qid, quiz_id),
+                (qtype, text, json.dumps(options), json.dumps(correct), points, explanation, time_limit, qid, quiz_id),
             )
         else:
             pos_row = conn.execute(
                 "SELECT COALESCE(MAX(position), -1)+1 AS p FROM questions WHERE quiz_id=?", (quiz_id,)
             ).fetchone()
             cur = conn.execute(
-                """INSERT INTO questions(quiz_id, type, text, options, correct_answers, points, position, explanation)
-                   VALUES(?,?,?,?,?,?,?,?)""",
-                (quiz_id, qtype, text, json.dumps(options), json.dumps(correct), points, pos_row["p"], explanation),
+                """INSERT INTO questions(quiz_id, type, text, options, correct_answers, points, position, explanation, time_limit_seconds)
+                   VALUES(?,?,?,?,?,?,?,?,?)""",
+                (quiz_id, qtype, text, json.dumps(options), json.dumps(correct), points, pos_row["p"], explanation, time_limit),
             )
             qid = cur.lastrowid
         conn.execute("UPDATE quizzes SET updated_at=? WHERE id=?", (db.now_ts(), quiz_id))

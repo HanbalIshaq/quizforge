@@ -9,7 +9,7 @@
   const quizId = quizIdMatch ? quizIdMatch[1] : null;
 
   function buildEditor(existing) {
-    const data = existing || { type: 'mcq_single', text: '', options: ['', ''], correct_answers: [], points: 1, explanation: '' };
+    const data = existing || { type: 'mcq_single', text: '', options: ['', ''], correct_answers: [], points: 1, explanation: '', time_limit_seconds: 0 };
     const wrap = document.createElement('div');
     wrap.className = 'bg-white border-2 border-brand-500 rounded-lg p-4 fade-in question-editor';
     wrap.innerHTML = `
@@ -17,8 +17,12 @@
         <select class="q-type px-2 py-2 border rounded text-sm">
           ${QUESTION_TYPES.map(([v,l]) => `<option value="${v}">${l}</option>`).join('')}
         </select>
-        <input class="q-points px-3 py-2 border rounded text-sm" type="number" min="0" value="${data.points || 1}" placeholder="Points" />
-        <div></div>
+        <label class="text-xs text-slate-600">Points
+          <input class="q-points w-full mt-1 px-3 py-2 border rounded text-sm" type="number" min="0" value="${data.points || 1}" placeholder="Points" />
+        </label>
+        <label class="text-xs text-slate-600">Time limit (sec, 0 = none)
+          <input class="q-time w-full mt-1 px-3 py-2 border rounded text-sm" type="number" min="0" step="5" value="${data.time_limit_seconds || 0}" placeholder="0" />
+        </label>
       </div>
       <textarea class="q-text w-full px-3 py-2 border rounded text-sm mb-2" rows="2" placeholder="Question text...">${esc(data.text)}</textarea>
       <div class="q-options-wrap"></div>
@@ -85,6 +89,7 @@
         type: typeSel.value,
         text: wrap.querySelector('.q-text').value.trim(),
         points: parseInt(wrap.querySelector('.q-points').value || '1', 10),
+        time_limit_seconds: parseInt(wrap.querySelector('.q-time').value || '0', 10),
         explanation: wrap.querySelector('.q-expl').value,
         options: [],
         correct_answers: [],

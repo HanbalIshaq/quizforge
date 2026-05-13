@@ -40,7 +40,9 @@
         <option value="poll" {% if quiz.kind=='poll' %}selected{% endif %}>Live Poll</option>
         <option value="survey" {% if quiz.kind=='survey' %}selected{% endif %}>Survey</option>
       </select>
-      <label class="block text-xs text-slate-600">Time limit (seconds, 0 = none)
+      <label class="block text-xs text-slate-600">
+        Whole-exam time limit (seconds, 0 = none)
+        <span class="block text-slate-400">Applies to the entire quiz. Set per-question times in the question editor on the right.</span>
         <input type="number" name="time_limit_seconds" value="{{ quiz.time_limit_seconds or 0 }}" min="0"
                class="w-full mt-1 px-3 py-2 border rounded text-sm" />
       </label>

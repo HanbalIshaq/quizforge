@@ -3,6 +3,7 @@
     <div class="flex-1">
       <div class="text-xs text-slate-500 mb-1">
         Q{{ idx }} &middot; <span class="capitalize">{{ q.type.replace('_', ' ') }}</span> &middot; {{ q.points }} pt{% if q.points != 1 %}s{% endif %}
+        {% if q.time_limit_seconds %} &middot; <span class="text-amber-700">⏱ {{ q.time_limit_seconds }}s</span>{% endif %}
       </div>
       <div class="font-medium">{{ q.text }}</div>
       {% if q.options %}

@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS questions (
     correct_answers TEXT,                        -- JSON
     points INTEGER DEFAULT 1,
     position INTEGER DEFAULT 0,
-    explanation TEXT
+    explanation TEXT,
+    time_limit_seconds INTEGER DEFAULT 0         -- 0 = no per-question limit
 );
 
 CREATE TABLE IF NOT EXISTS attempts (
@@ -110,6 +111,7 @@ def init_db():
     _ensure_column(conn, "users", "is_approved", "INTEGER DEFAULT 1")
     _ensure_column(conn, "users", "is_suspended", "INTEGER DEFAULT 0")
     _ensure_column(conn, "users", "last_login_at", "INTEGER")
+    _ensure_column(conn, "questions", "time_limit_seconds", "INTEGER DEFAULT 0")
     conn.commit()
     conn.close()
 
