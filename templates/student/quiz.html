@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}{{ quiz.title }}{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto">
+  <h1 class="text-3xl font-bold mb-1">{{ quiz.title }}</h1>
+  {% if quiz.description %}<p class="text-slate-600 mb-4">{{ quiz.description }}</p>{% endif %}
+  <p class="text-sm text-slate-500 mb-6">
+    {{ questions|length }} question(s)
+    {% if quiz.time_limit_seconds %} &middot; {{ (quiz.time_limit_seconds // 60) }} min limit{% endif %}
+    {% if quiz.pass_mark %} &middot; pass mark {{ quiz.pass_mark }}%{% endif %}
+  </p>
+
+  <form method="post" class="space-y-4" id="quiz-form">
+    <div class="bg-white border border-slate-200 rounded-lg p-5 space-y-3">
+      {% if quiz.require_name %}
+        <label class="block text-sm">
+          <span class="font-medium">Your name {% if quiz.require_name %}<span class="text-red-500">*</span>{% endif %}</span>
+          <input name="student_name" required class="mt-1 w-full px-3 py-2 border rounded" />
+        </label>
+      {% endif %}
+      {% if quiz.require_email %}
+        <label class="block text-sm">
+          <span class="font-medium">Email <span class="text-red-500">*</span></span>
+          <input type="email" name="student_email" required class="mt-1 w-full px-3 py-2 border rounded" />
+        </label>
+      {% endif %}
+      {% if quiz.time_limit_seconds %}
+        <div class="text-sm text-amber-700">
+          Time remaining: <span id="timer" class="font-mono font-bold">{{ (quiz.time_limit_seconds // 60) }}:{{ '%02d' % (quiz.time_limit_seconds % 60) }}</span>
+        </div>
+      {% endif %}
+    </div>
+
+    {% for q in questions %}
+      <div class="bg-white border border-slate-200 rounded-lg p-5">
+        <p class="text-xs text-slate-500 mb-1">Q{{ loop.index }} &middot; {{ q.points }} pt{% if q.points != 1 %}s{% endif %}</p>
+        <p class="font-medium mb-3">{{ q.text }}</p>
+
+        {% if q.type == 'mcq_single' %}
+          <div class="space-y-2">
+            {% for opt in q.options %}
+              <label class="flex items-start gap-2 p-2 border rounded hover:bg-slate-50 cursor-pointer">
+                <input type="radio" name="q_{{ q.id }}" value="{{ loop.index0 }}" class="mt-1" />
+                <span>{{ opt }}</span>
+              </label>
+            {% endfor %}
+          </div>
+
+        {% elif q.type == 'mcq_multi' %}
+          <div class="space-y-2">
+            {% for opt in q.options %}
+              <label class="flex items-start gap-2 p-2 border rounded hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" name="q_{{ q.id }}" value="{{ loop.index0 }}" class="mt-1" />
+                <span>{{ opt }}</span>
+              </label>
+            {% endfor %}
+          </div>
+
+        {% elif q.type == 'true_false' %}
+          <div class="flex gap-3">
+            <label class="flex-1 flex items-center justify-center gap-2 py-3 border rounded hover:bg-slate-50 cursor-pointer">
+              <input type="radio" name="q_{{ q.id }}" value="0" /> True
+            </label>
+            <label class="flex-1 flex items-center justify-center gap-2 py-3 border rounded hover:bg-slate-50 cursor-pointer">
+              <input type="radio" name="q_{{ q.id }}" value="1" /> False
+            </label>
+          </div>
+
+        {% elif q.type == 'short_answer' or q.type == 'fill_blank' %}
+          <input name="q_{{ q.id }}" class="w-full px-3 py-2 border rounded" placeholder="Your answer..." />
+
+        {% elif q.type == 'long_answer' or q.type == 'open_ended' or q.type == 'word_cloud' %}
+          <textarea name="q_{{ q.id }}" rows="4" class="w-full px-3 py-2 border rounded" placeholder="Your answer..."></textarea>
+
+        {% elif q.type == 'rating' %}
+          <div class="flex gap-2">
+            {% for n in [1,2,3,4,5] %}
+              <label class="flex-1 flex items-center justify-center py-3 border rounded hover:bg-slate-50 cursor-pointer">
+                <input type="radio" name="q_{{ q.id }}" value="{{ n }}" class="sr-only peer" />
+                <span class="text-xl peer-checked:text-amber-500">{{ n }} &#9733;</span>
+              </label>
+            {% endfor %}
+          </div>
+
+        {% elif q.type == 'poll' %}
+          <div class="space-y-2">
+            {% for opt in q.options %}
+              <label class="flex items-start gap-2 p-2 border rounded hover:bg-slate-50 cursor-pointer">
+                <input type="radio" name="q_{{ q.id }}" value="{{ loop.index0 }}" class="mt-1" />
+                <span>{{ opt }}</span>
+              </label>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    <div class="flex justify-end">
+      <button class="px-6 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">Submit</button>
+    </div>
+  </form>
+</div>
+
+{% if quiz.time_limit_seconds %}
+<script>
+  (function() {
+    let remaining = {{ quiz.time_limit_seconds }};
+    const el = document.getElementById('timer');
+    const form = document.getElementById('quiz-form');
+    setInterval(function() {
+      remaining--;
+      if (remaining <= 0) { form.submit(); return; }
+      const m = Math.floor(remaining / 60), s = remaining % 60;
+      el.textContent = m + ':' + String(s).padStart(2, '0');
+    }, 1000);
+  })();
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Results &middot; {{ quiz.title }}{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto">
+  <div class="bg-white border border-slate-200 rounded-lg p-6 text-center mb-6">
+    <h1 class="text-2xl font-bold mb-2">{{ quiz.title }}</h1>
+    <p class="text-sm text-slate-500">Thanks, {{ attempt.student_name or 'Anonymous' }}!</p>
+    {% if attempt.needs_grading %}
+      <p class="mt-4 text-amber-700">Your answers are pending manual review.</p>
+    {% else %}
+      <div class="text-5xl font-bold mt-4
+        {% if quiz.pass_mark and attempt.percentage >= quiz.pass_mark %}text-emerald-600
+        {% elif quiz.pass_mark %}text-red-600
+        {% else %}text-brand-700{% endif %}">
+        {{ '%.0f' % (attempt.percentage or 0) }}%
+      </div>
+      <p class="text-slate-600 mt-1">{{ '%.1f' % (attempt.score or 0) }} / {{ '%.0f' % (attempt.max_score or 0) }} points</p>
+      {% if quiz.pass_mark %}
+        {% if attempt.percentage >= quiz.pass_mark %}
+          <p class="mt-2 inline-block px-3 py-1 bg-emerald-100 text-emerald-700 rounded">PASS (pass mark {{ quiz.pass_mark }}%)</p>
+        {% else %}
+          <p class="mt-2 inline-block px-3 py-1 bg-red-100 text-red-700 rounded">FAIL (pass mark {{ quiz.pass_mark }}%)</p>
+        {% endif %}
+      {% endif %}
+    {% endif %}
+  </div>
+
+  {% if quiz.show_correct_answers and not attempt.needs_grading %}
+    <h2 class="font-semibold mb-3">Review</h2>
+    <div class="space-y-3">
+      {% for q in questions %}
+        {% set a = answers.get(q.id) %}
+        <div class="bg-white border border-slate-200 rounded-lg p-4">
+          <p class="text-xs text-slate-500 mb-1">Q{{ loop.index }}
+            {% if a and a.is_correct == 1 %}<span class="ml-1 text-emerald-600">&check; correct</span>
+            {% elif a and a.is_correct == 0 %}<span class="ml-1 text-red-600">&times; incorrect</span>{% endif %}
+          </p>
+          <p class="font-medium mb-2">{{ q.text }}</p>
+          {% if q.options %}
+            <ul class="text-sm space-y-1">
+              {% for opt in q.options %}
+                {% set is_correct = loop.index0 in q.correct_answers %}
+                {% set was_picked = a and a.value is not none and ((a.value is iterable and a.value is not string and loop.index0 in a.value) or (a.value == loop.index0)) %}
+                <li class="flex items-center gap-2
+                  {% if is_correct %}text-emerald-700{% elif was_picked %}text-red-700{% endif %}">
+                  <span class="w-5">{{ "ABCDEFGH"[loop.index0] }}.</span>
+                  <span>{{ opt }}</span>
+                  {% if is_correct %}<span>&check;</span>{% endif %}
+                  {% if was_picked and not is_correct %}<span>&times;</span>{% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          {% elif a %}
+            <p class="text-sm">Your answer: <span class="font-mono">{{ a.value }}</span></p>
+            {% if q.correct_answers %}
+              <p class="text-sm text-emerald-700">Accepted: {{ q.correct_answers|join(' / ') }}</p>
+            {% endif %}
+          {% endif %}
+          {% if q.explanation %}<p class="text-xs text-slate-500 italic mt-2">{{ q.explanation }}</p>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="mt-6 text-center">
+    <a href="{{ url_for('home') }}" class="text-sm text-brand-700 hover:underline">Back to home</a>
+  </div>
+</div>
+{% endblock %}

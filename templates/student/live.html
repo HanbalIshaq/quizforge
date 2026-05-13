@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Live: {{ quiz.title }}{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <div id="name-gate" class="bg-white border border-slate-200 rounded-lg p-8 text-center">
+    <p class="text-sm text-slate-500">Joining</p>
+    <h1 class="text-2xl font-bold mb-1">{{ quiz.title }}</h1>
+    <p class="text-xs text-slate-500 mb-6">Code: <span class="font-mono">{{ session.join_code }}</span></p>
+    <input id="name-input" required autofocus placeholder="Your name"
+           class="w-full text-center text-lg px-4 py-3 border-2 border-slate-300 rounded-lg focus:border-brand-500 focus:ring-2 focus:ring-brand-500" />
+    <button id="name-btn" class="mt-3 w-full py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">Join</button>
+  </div>
+
+  <div id="waiting" class="hidden bg-white border border-slate-200 rounded-lg p-10 text-center">
+    <div class="text-5xl mb-3">&#9203;</div>
+    <p class="text-slate-600">Waiting for the host to start...</p>
+    <p class="text-xs text-slate-400 mt-2" id="waiting-name"></p>
+  </div>
+
+  <div id="question-panel" class="hidden bg-white border border-slate-200 rounded-lg p-6">
+    <p class="text-xs text-slate-500" id="q-meta"></p>
+    <h2 class="text-xl font-semibold mt-1 mb-4" id="q-text"></h2>
+    <div id="q-options" class="space-y-2"></div>
+    <p class="text-sm text-emerald-700 mt-4 hidden" id="answered-msg">&check; Answer submitted &mdash; waiting for next question.</p>
+  </div>
+
+  <div id="reveal-panel" class="hidden bg-white border border-slate-200 rounded-lg p-6 mt-3">
+    <p class="font-semibold text-sm mb-2">Results</p>
+    <div id="reveal-content" class="space-y-1.5 text-sm"></div>
+    <p id="my-result" class="mt-3 text-sm"></p>
+  </div>
+
+  <div id="ended" class="hidden bg-white border border-slate-200 rounded-lg p-10 text-center">
+    <div class="text-5xl mb-3">&#127881;</div>
+    <p class="text-slate-600 mb-4">Session ended. Thanks for playing!</p>
+    <p class="text-xs text-slate-500 mb-1">Final leaderboard</p>
+    <ol id="final-leaderboard" class="text-sm max-w-xs mx-auto space-y-1"></ol>
+  </div>
+</div>
+
+<script>
+  window.LIVE_STUDENT_CONFIG = {
+    joinCode: "{{ session.join_code }}",
+  };
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="{{ url_for('static', filename='js/live-student.js') }}"></script>
+{% endblock %}

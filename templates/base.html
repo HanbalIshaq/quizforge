@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}QuizForge{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:'#eef2ff',100:'#e0e7ff',500:'#6366f1',600:'#4f46e5',700:'#4338ca',900:'#312e81' }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+  <header class="bg-white border-b border-slate-200">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="{{ url_for('home') }}" class="font-bold text-lg text-brand-700 flex items-center gap-2">
+        <span class="inline-block w-7 h-7 rounded bg-brand-600 text-white grid place-items-center text-sm">Q</span>
+        QuizForge
+      </a>
+      <nav class="flex items-center gap-3 text-sm">
+        {% if user %}
+          <a href="{{ url_for('admin_dashboard') }}" class="hover:text-brand-700">Dashboard</a>
+          <span class="text-slate-400">|</span>
+          <span class="text-slate-600">{{ user.name or user.email }}</span>
+          <a href="{{ url_for('logout') }}" class="text-slate-500 hover:text-red-600">Sign out</a>
+        {% else %}
+          <a href="{{ url_for('join') }}" class="hover:text-brand-700">Join</a>
+          <a href="{{ url_for('login') }}" class="hover:text-brand-700">Sign in</a>
+          <a href="{{ url_for('register') }}" class="px-3 py-1.5 bg-brand-600 text-white rounded hover:bg-brand-700">Sign up</a>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+  <main class="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="mb-4 space-y-2">
+          {% for cat, msg in messages %}
+            <div class="px-4 py-2 rounded border text-sm
+              {% if cat == 'error' %}bg-red-50 border-red-200 text-red-800
+              {% elif cat == 'success' %}bg-emerald-50 border-emerald-200 text-emerald-800
+              {% else %}bg-slate-100 border-slate-200{% endif %}">
+              {{ msg }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="py-6 text-center text-xs text-slate-400">QuizForge &middot; self-hosted &middot; built with Flask</footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

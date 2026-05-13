@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Results &middot; {{ quiz.title }}{% endblock %}
+{% block content %}
+<div class="flex items-start justify-between mb-6">
+  <div>
+    <a href="{{ url_for('quiz_edit', quiz_id=quiz.id) }}" class="text-sm text-slate-500 hover:text-brand-700">&larr; Edit quiz</a>
+    <h1 class="text-2xl font-bold mt-1">Results: {{ quiz.title }}</h1>
+    <p class="text-sm text-slate-500">{{ attempts|length }} attempt(s)</p>
+  </div>
+  <div class="flex gap-2">
+    <a href="{{ url_for('export_csv', quiz_id=quiz.id) }}" class="px-3 py-2 bg-white border border-slate-300 rounded text-sm hover:bg-slate-100">Export CSV</a>
+    <a href="{{ url_for('export_xlsx', quiz_id=quiz.id) }}" class="px-3 py-2 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">Export Excel</a>
+  </div>
+</div>
+
+<section class="bg-white border border-slate-200 rounded-lg overflow-hidden mb-8">
+  <table class="w-full text-sm">
+    <thead class="bg-slate-50 text-left text-slate-600">
+      <tr>
+        <th class="px-4 py-2">Name</th>
+        <th class="px-4 py-2">Email</th>
+        <th class="px-4 py-2">Score</th>
+        <th class="px-4 py-2">%</th>
+        <th class="px-4 py-2">Submitted</th>
+        <th class="px-4 py-2"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in attempts %}
+        <tr class="border-t border-slate-200 hover:bg-slate-50">
+          <td class="px-4 py-2 font-medium">{{ a.student_name or 'Anonymous' }}</td>
+          <td class="px-4 py-2 text-slate-500">{{ a.student_email or '' }}</td>
+          <td class="px-4 py-2">{{ '%.1f' % (a.score or 0) }} / {{ '%.0f' % (a.max_score or 0) }}</td>
+          <td class="px-4 py-2">
+            {{ '%.0f' % (a.percentage or 0) }}%
+            {% if quiz.pass_mark and a.percentage is not none %}
+              {% if a.percentage >= quiz.pass_mark %}
+                <span class="ml-1 text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Pass</span>
+              {% else %}
+                <span class="ml-1 text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-700">Fail</span>
+              {% endif %}
+            {% endif %}
+            {% if a.needs_grading %}
+              <span class="ml-1 text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Needs grading</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2 text-slate-500">{{ a.submitted_at_fmt }}</td>
+          <td class="px-4 py-2 text-right">
+            <a href="{{ url_for('attempt_detail', quiz_id=quiz.id, aid=a.id) }}" class="text-xs px-2 py-1 bg-slate-100 rounded hover:bg-slate-200">View</a>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="px-4 py-8 text-center text-slate-500">No attempts yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2 class="font-semibold mb-3">Per-question breakdown</h2>
+  <div class="space-y-3">
+    {% for s in stats %}
+      <div class="bg-white border border-slate-200 rounded-lg p-4">
+        <div class="text-xs text-slate-500 mb-1">
+          Q{{ loop.index }} &middot; <span class="capitalize">{{ s.q.type.replace('_', ' ') }}</span>
+          {% if s.q.type in ('mcq_single','mcq_multi','true_false','short_answer','fill_blank') %}
+            &middot; {{ s.correct }}/{{ s.total }} correct
+          {% else %}
+            &middot; {{ s.total }} response(s)
+          {% endif %}
+        </div>
+        <div class="font-medium mb-2">{{ s.q.text }}</div>
+        {% if s.q.options %}
+          <div class="space-y-1">
+            {% for opt in s.q.options %}
+              {% set n = s.counts.get(loop.index0, 0) %}
+              {% set pct = (n / s.total * 100) if s.total else 0 %}
+              <div class="flex items-center gap-2 text-sm">
+                <span class="w-8 text-slate-400">{{ "ABCDEFGH"[loop.index0] }}.</span>
+                <span class="flex-1">{{ opt }} {% if loop.index0 in s.q.correct_answers %}<span class="text-emerald-600">&check;</span>{% endif %}</span>
+                <div class="w-40 bg-slate-100 h-2 rounded overflow-hidden">
+                  <div class="h-2 {% if loop.index0 in s.q.correct_answers %}bg-emerald-500{% else %}bg-brand-500{% endif %}" style="width: {{ pct }}%"></div>
+                </div>
+                <span class="text-xs text-slate-500 w-12 text-right">{{ n }} ({{ '%.0f' % pct }}%)</span>
+              </div>
+            {% endfor %}
+          </div>
+        {% elif s.text_answers %}
+          <ul class="text-sm text-slate-700 list-disc pl-5 space-y-0.5 max-h-40 overflow-auto">
+            {% for ta in s.text_answers %}<li>{{ ta }}</li>{% endfor %}
+          </ul>
+        {% else %}
+          <p class="text-sm text-slate-400">No responses yet.</p>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Dashboard &middot; QuizForge{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Your quizzes</h1>
+  <form method="post" action="{{ url_for('quiz_new') }}" class="flex items-center gap-2">
+    <select name="kind" class="px-2 py-2 border border-slate-300 rounded text-sm">
+      <option value="exam">Exam / Quiz</option>
+      <option value="poll">Live Poll</option>
+      <option value="survey">Survey</option>
+    </select>
+    <input name="title" placeholder="New quiz title" required
+           class="px-3 py-2 border border-slate-300 rounded text-sm" />
+    <button class="px-4 py-2 bg-brand-600 text-white rounded hover:bg-brand-700 text-sm">+ Create</button>
+  </form>
+</div>
+
+{% if quizzes %}
+  <div class="bg-white border border-slate-200 rounded-lg overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-slate-600 text-left">
+        <tr>
+          <th class="px-4 py-2">Title</th>
+          <th class="px-4 py-2">Type</th>
+          <th class="px-4 py-2">Questions</th>
+          <th class="px-4 py-2">Responses</th>
+          <th class="px-4 py-2">Share code</th>
+          <th class="px-4 py-2">Updated</th>
+          <th class="px-4 py-2"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for q in quizzes %}
+          <tr class="border-t border-slate-200 hover:bg-slate-50">
+            <td class="px-4 py-2 font-medium">
+              <a href="{{ url_for('quiz_edit', quiz_id=q.id) }}" class="text-brand-700 hover:underline">{{ q.title }}</a>
+              {% if not q.is_published %}<span class="ml-2 text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-700">Draft</span>{% endif %}
+            </td>
+            <td class="px-4 py-2 capitalize">{{ q.kind }}</td>
+            <td class="px-4 py-2">{{ q.n_q }}</td>
+            <td class="px-4 py-2">{{ q.n_a }}</td>
+            <td class="px-4 py-2 font-mono">{{ q.share_code }}</td>
+            <td class="px-4 py-2 text-slate-500">{{ fmt_ts(q.updated_at) }}</td>
+            <td class="px-4 py-2 text-right space-x-1 whitespace-nowrap">
+              <a href="{{ url_for('quiz_edit', quiz_id=q.id) }}" class="text-xs px-2 py-1 bg-slate-100 rounded hover:bg-slate-200">Edit</a>
+              <a href="{{ url_for('quiz_results', quiz_id=q.id) }}" class="text-xs px-2 py-1 bg-slate-100 rounded hover:bg-slate-200">Results</a>
+              <form method="post" action="{{ url_for('live_start', quiz_id=q.id) }}" class="inline">
+                <button class="text-xs px-2 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-700">Go Live</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <div class="bg-white border border-slate-200 rounded-lg p-12 text-center text-slate-500">
+    <p>No quizzes yet. Create one above to get started.</p>
+  </div>
+{% endif %}
+{% endblock %}

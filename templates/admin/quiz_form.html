@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}{{ quiz.title }} &middot; Edit{% endblock %}
+{% block content %}
+<div class="flex items-start justify-between mb-4">
+  <div>
+    <a href="{{ url_for('admin_dashboard') }}" class="text-sm text-slate-500 hover:text-brand-700">&larr; Dashboard</a>
+    <h1 class="text-2xl font-bold mt-1">{{ quiz.title }}</h1>
+    <p class="text-sm text-slate-500">
+      Share code:
+      <span class="font-mono bg-slate-100 px-2 py-0.5 rounded">{{ quiz.share_code }}</span>
+      &middot;
+      Public link:
+      <a class="text-brand-700 hover:underline" href="{{ url_for('take_quiz', code=quiz.share_code, _external=True) }}">
+        {{ url_for('take_quiz', code=quiz.share_code, _external=True) }}
+      </a>
+    </p>
+  </div>
+  <div class="flex gap-2">
+    <a href="{{ url_for('quiz_results', quiz_id=quiz.id) }}" class="px-3 py-2 bg-white border border-slate-300 rounded text-sm hover:bg-slate-100">Results</a>
+    <form method="post" action="{{ url_for('live_start', quiz_id=quiz.id) }}">
+      <button class="px-3 py-2 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">Start Live Session</button>
+    </form>
+    <form method="post" action="{{ url_for('quiz_delete', quiz_id=quiz.id) }}"
+          onsubmit="return confirm('Delete this quiz and all its results?')">
+      <button class="px-3 py-2 bg-red-50 border border-red-200 text-red-700 rounded text-sm hover:bg-red-100">Delete</button>
+    </form>
+  </div>
+</div>
+
+<div class="grid lg:grid-cols-3 gap-6">
+  <!-- Settings -->
+  <aside class="lg:col-span-1 space-y-4">
+    <form method="post" action="{{ url_for('quiz_update_settings', quiz_id=quiz.id) }}"
+          class="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
+      <h2 class="font-semibold">Settings</h2>
+      <input name="title" value="{{ quiz.title }}" required class="w-full px-3 py-2 border rounded text-sm" placeholder="Title" />
+      <textarea name="description" rows="2" class="w-full px-3 py-2 border rounded text-sm" placeholder="Description">{{ quiz.description or '' }}</textarea>
+      <select name="kind" class="w-full px-3 py-2 border rounded text-sm">
+        <option value="exam" {% if quiz.kind=='exam' %}selected{% endif %}>Exam / Quiz</option>
+        <option value="poll" {% if quiz.kind=='poll' %}selected{% endif %}>Live Poll</option>
+        <option value="survey" {% if quiz.kind=='survey' %}selected{% endif %}>Survey</option>
+      </select>
+      <label class="block text-xs text-slate-600">Time limit (seconds, 0 = none)
+        <input type="number" name="time_limit_seconds" value="{{ quiz.time_limit_seconds or 0 }}" min="0"
+               class="w-full mt-1 px-3 py-2 border rounded text-sm" />
+      </label>
+      <label class="block text-xs text-slate-600">Pass mark %
+        <input type="number" name="pass_mark" value="{{ quiz.pass_mark or 0 }}" min="0" max="100"
+               class="w-full mt-1 px-3 py-2 border rounded text-sm" />
+      </label>
+      <label class="block text-xs text-slate-600">Max attempts (0 = unlimited)
+        <input type="number" name="max_attempts" value="{{ quiz.max_attempts or 0 }}" min="0"
+               class="w-full mt-1 px-3 py-2 border rounded text-sm" />
+      </label>
+      <div class="space-y-1.5 text-sm">
+        <label class="flex items-center gap-2"><input type="checkbox" name="randomize_questions" {% if quiz.randomize_questions %}checked{% endif %}> Randomize questions</label>
+        <label class="flex items-center gap-2"><input type="checkbox" name="randomize_options" {% if quiz.randomize_options %}checked{% endif %}> Randomize options</label>
+        <label class="flex items-center gap-2"><input type="checkbox" name="show_correct_answers" {% if quiz.show_correct_answers %}checked{% endif %}> Show correct answers after submit</label>
+        <label class="flex items-center gap-2"><input type="checkbox" name="require_name" {% if quiz.require_name %}checked{% endif %}> Require name</label>
+        <label class="flex items-center gap-2"><input type="checkbox" name="require_email" {% if quiz.require_email %}checked{% endif %}> Require email</label>
+        <label class="flex items-center gap-2"><input type="checkbox" name="is_published" {% if quiz.is_published %}checked{% endif %}> Published</label>
+      </div>
+      <button class="w-full py-2 bg-brand-600 text-white rounded hover:bg-brand-700 text-sm">Save settings</button>
+    </form>
+
+    <details class="bg-white border border-slate-200 rounded-lg p-4">
+      <summary class="font-semibold cursor-pointer">Bulk import</summary>
+      <form method="post" action="{{ url_for('quiz_import', quiz_id=quiz.id) }}"
+            enctype="multipart/form-data" class="mt-3 space-y-2 text-sm">
+        <p class="text-xs text-slate-500">
+          Upload a <b>.docx</b>, <b>.csv</b>, or <b>.txt</b> file, or paste text below.
+          See the bottom of this page for format examples.
+        </p>
+        <input type="file" name="file" accept=".docx,.csv,.txt"
+               class="w-full text-xs file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:bg-brand-50 file:text-brand-700" />
+        <select name="format" class="w-full px-2 py-2 border rounded text-sm">
+          <option value="text">Text / Aiken format</option>
+          <option value="csv">CSV</option>
+        </select>
+        <textarea name="content" rows="6" class="w-full px-2 py-2 border rounded font-mono text-xs"
+          placeholder="Paste questions here..."></textarea>
+        <button class="w-full py-2 bg-slate-700 text-white rounded text-sm hover:bg-slate-800">Import</button>
+      </form>
+    </details>
+  </aside>
+
+  <!-- Questions -->
+  <section class="lg:col-span-2 space-y-3">
+    <div class="flex items-center justify-between">
+      <h2 class="font-semibold">Questions ({{ questions|length }})</h2>
+      <button id="add-q-btn" class="px-3 py-2 bg-brand-600 text-white rounded text-sm hover:bg-brand-700">+ Add question</button>
+    </div>
+    <div id="questions-list" class="space-y-3">
+      {% for q in questions %}
+        {% with idx=loop.index %}{% include 'admin/_question_card.html' %}{% endwith %}
+      {% endfor %}
+    </div>
+    <div id="empty-msg" class="bg-white border border-dashed border-slate-300 rounded p-8 text-center text-slate-500 {% if questions %}hidden{% endif %}">
+      No questions yet. Click "Add question" to begin, or use bulk import.
+    </div>
+  </section>
+</div>
+
+<details class="mt-10 text-sm bg-white border border-slate-200 rounded p-4">
+  <summary class="font-semibold cursor-pointer">Import format examples</summary>
+  <div class="grid md:grid-cols-2 gap-4 mt-3 text-xs">
+    <div>
+      <h4 class="font-semibold mb-1">Text (Aiken style)</h4>
+<pre class="bg-slate-50 p-2 rounded">What is the capital of France?
+A) Berlin
+B) Madrid
+C) Paris
+D) Rome
+ANSWER: C
+
+The earth is flat.
+ANSWER: False
+
+Q: What does HTTP stand for?
+A: Hypertext Transfer Protocol</pre>
+    </div>
+    <div>
+      <h4 class="font-semibold mb-1">CSV</h4>
+<pre class="bg-slate-50 p-2 rounded">type,text,option1,option2,option3,option4,correct,points
+mcq_single,Capital of France?,Berlin,Madrid,Paris,Rome,C,1
+true_false,Earth is flat,,,,,False,1
+short_answer,HTTP stands for?,,,,,Hypertext Transfer Protocol,1
+mcq_multi,Pick prime numbers,2,3,4,5,A|B|D,2</pre>
+    </div>
+  </div>
+</details>
+
+<script type="application/json" id="question-types">
+  {{ QUESTION_TYPES|tojson }}
+</script>
+<script>
+  window.QF_QUESTIONS_BY_ID = {{ questions|tojson }} .reduce((acc, q) => { acc[q.id] = q; return acc; }, {});
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/quiz-editor.js') }}"></script>
+{% endblock %}

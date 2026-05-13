@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="text-center py-12">
+  <h1 class="text-5xl font-bold text-slate-900 mb-4">Run quizzes, exams &amp; live polls</h1>
+  <p class="text-lg text-slate-600 max-w-2xl mx-auto mb-8">
+    Build assessments with 10+ question types. Share a link or run a real-time session and watch responses pour in live.
+  </p>
+  <div class="flex justify-center gap-3">
+    <a href="{{ url_for('register') }}" class="px-5 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">Create a quiz</a>
+    <a href="{{ url_for('join') }}" class="px-5 py-3 bg-white border border-slate-300 rounded-lg hover:bg-slate-100">Join with a code</a>
+  </div>
+</section>
+
+<section class="grid md:grid-cols-3 gap-4 mt-8">
+  {% for title, body in [
+    ('10+ question types', 'MCQ, true/false, short/long answer, fill-in-blank, matching, rating, polls, word clouds.'),
+    ('Live or async', 'Run a real-time Kahoot-style session, or share a link students take on their own time.'),
+    ('Import &amp; export', 'Paste from Word, upload .docx/.csv/.txt, export results to CSV or Excel.'),
+    ('Auto-grading', 'Objective questions graded instantly. Essays flagged for manual review.'),
+    ('Real-time dashboard', 'See who joined, who answered, and aggregate results live as they come in.'),
+    ('Self-hosted &amp; free', 'Your data stays on your server. Deploy anywhere Python runs.'),
+  ] %}
+    <div class="bg-white border border-slate-200 rounded-lg p-5">
+      <h3 class="font-semibold text-slate-900 mb-1">{{ title|safe }}</h3>
+      <p class="text-sm text-slate-600">{{ body|safe }}</p>
+    </div>
+  {% endfor %}
+</section>
+{% endblock %}

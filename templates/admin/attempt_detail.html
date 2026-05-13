@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Attempt &middot; {{ attempt.student_name }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('quiz_results', quiz_id=quiz.id) }}" class="text-sm text-slate-500 hover:text-brand-700">&larr; All results</a>
+<h1 class="text-2xl font-bold mt-1">{{ attempt.student_name or 'Anonymous' }}</h1>
+<p class="text-sm text-slate-500 mb-6">
+  Score: {{ '%.1f' % (attempt.score or 0) }} / {{ '%.0f' % (attempt.max_score or 0) }}
+  ({{ '%.0f' % (attempt.percentage or 0) }}%) &middot; submitted {{ fmt_ts(attempt.submitted_at) }}
+</p>
+
+<form method="post" class="space-y-3">
+  {% for q in questions %}
+    {% set a = answers.get(q.id) %}
+    <div class="bg-white border border-slate-200 rounded-lg p-4">
+      <div class="text-xs text-slate-500 mb-1">Q{{ loop.index }} &middot; <span class="capitalize">{{ q.type.replace('_',' ') }}</span> &middot; max {{ q.points }} pt</div>
+      <div class="font-medium mb-2">{{ q.text }}</div>
+      <div class="text-sm">
+        <span class="text-slate-500">Answer:</span>
+        {% if q.options and a and a.value is not none %}
+          {% if a.value is iterable and a.value is not string %}
+            {% for i in a.value %}{{ q.options[i] if i < q.options|length else i }}{% if not loop.last %}, {% endif %}{% endfor %}
+          {% else %}
+            {{ q.options[a.value] if (a.value is integer and a.value < q.options|length) else a.value }}
+          {% endif %}
+        {% elif a %}
+          {{ a.value }}
+        {% else %}
+          <em class="text-slate-400">no answer</em>
+        {% endif %}
+      </div>
+      {% if q.correct_answers and q.options %}
+        <div class="text-xs text-emerald-700 mt-1">Correct: {% for i in q.correct_answers %}{{ q.options[i] if i < q.options|length else i }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+      {% elif q.correct_answers and q.type in ('short_answer', 'fill_blank') %}
+        <div class="text-xs text-emerald-700 mt-1">Accepted: {{ q.correct_answers|join(' / ') }}</div>
+      {% endif %}
+      {% if a %}
+        <div class="mt-3 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
+          <label class="text-xs text-slate-600">Points
+            <input type="number" name="pts_{{ a.id }}" value="{{ '%.1f' % (a.points_earned or 0) }}" step="0.5" min="0" max="{{ q.points }}"
+                   class="ml-1 w-20 px-2 py-1 border rounded text-sm" />
+          </label>
+          <input type="text" name="fb_{{ a.id }}" value="{{ a.feedback or '' }}" placeholder="Feedback (optional)"
+                 class="flex-1 px-2 py-1 border rounded text-sm" />
+          {% if a.is_correct == 1 %}<span class="text-emerald-600 text-xs">&check; correct</span>
+          {% elif a.is_correct == 0 %}<span class="text-red-600 text-xs">&times; incorrect</span>
+          {% else %}<span class="text-amber-600 text-xs">manual</span>{% endif %}
+        </div>
+      {% endif %}
+    </div>
+  {% endfor %}
+  <button class="px-4 py-2 bg-brand-600 text-white rounded hover:bg-brand-700 text-sm">Save grading</button>
+</form>
+{% endblock %}

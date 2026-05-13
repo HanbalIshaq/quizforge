@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Live: {{ quiz.title }}{% endblock %}
+{% block content %}
+<div class="grid lg:grid-cols-3 gap-6">
+  <aside class="bg-white border border-slate-200 rounded-lg p-5 lg:col-span-1">
+    <p class="text-sm text-slate-500">Live session for</p>
+    <h1 class="text-xl font-bold">{{ quiz.title }}</h1>
+    <div class="mt-4">
+      <p class="text-xs text-slate-500 uppercase tracking-wide">Join code</p>
+      <div class="text-5xl font-mono font-bold tracking-wider text-brand-700 my-2">{{ session.join_code }}</div>
+      <p class="text-xs text-slate-500 break-all">
+        Or share: <a class="text-brand-700 hover:underline" href="{{ url_for('live_student', join_code=session.join_code, _external=True) }}">{{ url_for('live_student', join_code=session.join_code, _external=True) }}</a>
+      </p>
+    </div>
+    <div class="mt-6">
+      <p class="text-sm font-semibold mb-2">Participants (<span id="participant-count">0</span>)</p>
+      <ul id="participant-list" class="text-sm space-y-1 max-h-60 overflow-auto"></ul>
+    </div>
+  </aside>
+
+  <section class="lg:col-span-2 space-y-4">
+    <div class="bg-white border border-slate-200 rounded-lg p-6" id="question-panel">
+      <p class="text-slate-500 text-sm" id="status-msg">Press <b>Start / Next</b> to show the first question.</p>
+      <div id="current-question" class="hidden">
+        <div class="text-xs text-slate-500 mb-1" id="q-meta"></div>
+        <h2 class="text-xl font-semibold mb-4" id="q-text"></h2>
+        <div id="q-options" class="space-y-2"></div>
+      </div>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-lg p-5">
+      <div class="flex items-center justify-between mb-3">
+        <p class="font-semibold text-sm">Live responses (<span id="answer-count">0</span>)</p>
+        <p class="text-xs text-slate-500" id="answer-progress"></p>
+      </div>
+      <div id="stats-container" class="space-y-1.5 text-sm"></div>
+    </div>
+
+    <div class="flex gap-2">
+      <button id="btn-next" class="px-4 py-2 bg-brand-600 text-white rounded hover:bg-brand-700">Start / Next &raquo;</button>
+      <button id="btn-reveal" class="px-4 py-2 bg-amber-500 text-white rounded hover:bg-amber-600">Reveal &amp; Stats</button>
+      <button id="btn-end" class="px-4 py-2 bg-red-50 border border-red-200 text-red-700 rounded hover:bg-red-100">End session</button>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-lg p-5">
+      <p class="font-semibold text-sm mb-2">Leaderboard</p>
+      <ol id="leaderboard" class="text-sm space-y-1"></ol>
+    </div>
+  </section>
+</div>
+
+<script>
+  window.LIVE_CONFIG = {
+    sessionId: {{ session.id }},
+    totalQuestions: {{ questions|length }},
+  };
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="{{ url_for('static', filename='js/live-host.js') }}"></script>
+{% endblock %}
