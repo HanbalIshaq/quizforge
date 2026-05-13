@@ -1,18 +1,188 @@
-import sqlite3
+"""
+Database abstraction layer for QuizForge.
+
+Picks the engine at startup from the DATABASE_URL env var:
+  - postgresql://user:pass@host:port/dbname  -> PostgreSQL (production)
+  - postgres://...                            -> PostgreSQL (legacy URL form)
+  - (unset)                                   -> SQLite at $DATABASE_PATH (local dev / quick demo)
+
+The Connection wrapper exposes the same API as Python's sqlite3 (`conn.execute(...).fetchone()`,
+`cur.lastrowid`, `conn.commit()`, etc.) so the rest of the codebase doesn't care which engine
+is in use. To move to ANY new Postgres host (Render, Neon, Supabase, AWS RDS, your own VPS),
+just point DATABASE_URL at it.
+
+Supported SQL dialect: the subset used by QuizForge. The translator handles:
+  - `?` placeholders   -> `%s` for psycopg
+  - INTEGER PRIMARY KEY AUTOINCREMENT -> SERIAL PRIMARY KEY
+  - automatic RETURNING id on INSERT  -> populates lastrowid for callers
+  - PRAGMA foreign_keys = ON           -> no-op (PG always enforces FKs)
+
+Adding a new column to the schema: edit SCHEMA below AND add a matching `_ensure_column`
+call in `init_db()` so existing databases get migrated in-place.
+"""
 import os
-import time
+import re
 import secrets
 import string
+import time
 
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+# Render / Heroku-style legacy URLs use "postgres://"; psycopg wants "postgresql://"
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
+
+IS_POSTGRES = DATABASE_URL.startswith("postgresql://")
 DB_PATH = os.environ.get("DATABASE_PATH", "quizforge.db")
 
 
-def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+# ---------------------------------------------------------------------------
+# Engine selection
+# ---------------------------------------------------------------------------
 
+if IS_POSTGRES:
+    import psycopg
+    from psycopg.rows import dict_row
+else:
+    import sqlite3
+
+
+def _translate_sql(sql: str) -> str:
+    """Translate the SQLite dialect (which the schema is written in) to Postgres."""
+    # `?` placeholders -> `%s`
+    # We only have `?` in placeholders for our app (no `?` inside string literals).
+    sql = re.sub(r"\?", "%s", sql)
+    # INTEGER PRIMARY KEY AUTOINCREMENT -> SERIAL PRIMARY KEY
+    sql = re.sub(
+        r"INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT",
+        "SERIAL PRIMARY KEY",
+        sql,
+        flags=re.IGNORECASE,
+    )
+    # Postgres rejects PRAGMA — strip it.
+    sql = re.sub(r"PRAGMA\s+[^;]+;?", "", sql, flags=re.IGNORECASE)
+    return sql
+
+
+_INSERT_RE = re.compile(r"^\s*INSERT\s+INTO\s+([\w\"]+)", re.IGNORECASE)
+_HAS_RETURNING_RE = re.compile(r"\bRETURNING\b", re.IGNORECASE)
+
+
+def _maybe_add_returning(sql: str) -> tuple[str, bool]:
+    """For Postgres INSERTs, append `RETURNING id` so we can populate `cur.lastrowid`."""
+    if not _INSERT_RE.match(sql):
+        return sql, False
+    if _HAS_RETURNING_RE.search(sql):
+        return sql, False
+    return sql.rstrip().rstrip(";") + " RETURNING id", True
+
+
+class Row(dict):
+    """dict-like row that also supports attribute access (`row.id`) like sqlite3.Row."""
+
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError as e:
+            raise AttributeError(key) from e
+
+
+class _CursorWrapper:
+    """Uniform cursor that exposes .fetchone(), .fetchall(), .lastrowid, .rowcount."""
+
+    def __init__(self, native_cursor, lastrowid=None):
+        self._cur = native_cursor
+        self.lastrowid = lastrowid
+        try:
+            self.rowcount = native_cursor.rowcount
+        except Exception:
+            self.rowcount = 0
+
+    def fetchone(self):
+        row = self._cur.fetchone()
+        if row is None:
+            return None
+        if IS_POSTGRES:
+            # psycopg dict_row returns a real dict; wrap so attribute access works.
+            return Row(row)
+        # sqlite3.Row already supports both index and key access; keep as-is.
+        return row
+
+    def fetchall(self):
+        rows = self._cur.fetchall()
+        if IS_POSTGRES:
+            return [Row(r) for r in rows]
+        return list(rows)
+
+    def __iter__(self):
+        for r in self.fetchall():
+            yield r
+
+    def close(self):
+        try:
+            self._cur.close()
+        except Exception:
+            pass
+
+
+class Connection:
+    """Drop-in replacement for sqlite3.Connection that works on either engine."""
+
+    def __init__(self, native_conn):
+        self._conn = native_conn
+
+    def execute(self, sql: str, params=()):
+        if IS_POSTGRES:
+            translated = _translate_sql(sql)
+            translated, added_returning = _maybe_add_returning(translated)
+            cur = self._conn.cursor(row_factory=dict_row)
+            cur.execute(translated, tuple(params) if params else ())
+            lastrowid = None
+            if added_returning:
+                row = cur.fetchone()
+                if row:
+                    lastrowid = row.get("id")
+            return _CursorWrapper(cur, lastrowid=lastrowid)
+        cur = self._conn.execute(sql, params)
+        return _CursorWrapper(cur, lastrowid=cur.lastrowid)
+
+    def executescript(self, sql: str):
+        if IS_POSTGRES:
+            translated = _translate_sql(sql)
+            cur = self._conn.cursor()
+            # Naive split is OK for our schema (no `;` inside literals/comments).
+            for stmt in translated.split(";"):
+                if stmt.strip():
+                    cur.execute(stmt)
+            cur.close()
+        else:
+            self._conn.executescript(sql)
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+
+def get_conn() -> Connection:
+    if IS_POSTGRES:
+        native = psycopg.connect(DATABASE_URL)
+        return Connection(native)
+    native = sqlite3.connect(DB_PATH)
+    native.row_factory = sqlite3.Row
+    native.execute("PRAGMA foreign_keys = ON")
+    return Connection(native)
+
+
+# ---------------------------------------------------------------------------
+# Schema — written in SQLite-style; the translator handles the Postgres dialect
+# ---------------------------------------------------------------------------
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -33,7 +203,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
     title TEXT NOT NULL,
     description TEXT,
     share_code TEXT UNIQUE NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'exam',           -- 'exam' | 'poll' | 'survey'
+    kind TEXT NOT NULL DEFAULT 'exam',
     time_limit_seconds INTEGER DEFAULT 0,
     randomize_questions INTEGER DEFAULT 0,
     randomize_options INTEGER DEFAULT 0,
@@ -44,6 +214,13 @@ CREATE TABLE IF NOT EXISTS quizzes (
     pass_mark INTEGER DEFAULT 0,
     is_published INTEGER DEFAULT 1,
     paginated INTEGER DEFAULT 0,
+    quiz_password TEXT,
+    anti_paste INTEGER DEFAULT 0,
+    anti_rightclick INTEGER DEFAULT 0,
+    block_selection INTEGER DEFAULT 0,
+    require_fullscreen INTEGER DEFAULT 0,
+    detect_tab_switch INTEGER DEFAULT 0,
+    violation_limit INTEGER DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
@@ -53,12 +230,12 @@ CREATE TABLE IF NOT EXISTS questions (
     quiz_id INTEGER NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
     type TEXT NOT NULL,
     text TEXT NOT NULL,
-    options TEXT,                                -- JSON array
-    correct_answers TEXT,                        -- JSON
+    options TEXT,
+    correct_answers TEXT,
     points INTEGER DEFAULT 1,
     position INTEGER DEFAULT 0,
     explanation TEXT,
-    time_limit_seconds INTEGER DEFAULT 0         -- 0 = no per-question limit
+    time_limit_seconds INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS attempts (
@@ -72,7 +249,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     started_at INTEGER NOT NULL,
     submitted_at INTEGER,
     ip_address TEXT,
-    live_session_id INTEGER REFERENCES live_sessions(id) ON DELETE SET NULL,
+    live_session_id INTEGER,
     needs_grading INTEGER DEFAULT 0
 );
 
@@ -80,7 +257,7 @@ CREATE TABLE IF NOT EXISTS answers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     attempt_id INTEGER NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
     question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
-    answer TEXT,                                 -- JSON
+    answer TEXT,
     is_correct INTEGER,
     points_earned REAL DEFAULT 0,
     graded INTEGER DEFAULT 1,
@@ -90,7 +267,7 @@ CREATE TABLE IF NOT EXISTS answers (
 CREATE TABLE IF NOT EXISTS violations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     attempt_id INTEGER NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
-    type TEXT NOT NULL,                          -- tab_switch | paste | copy | rightclick | fullscreen_exit | devtools | other
+    type TEXT NOT NULL,
     details TEXT,
     created_at INTEGER NOT NULL
 );
@@ -101,7 +278,7 @@ CREATE TABLE IF NOT EXISTS live_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     quiz_id INTEGER NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
     join_code TEXT UNIQUE NOT NULL,
-    status TEXT DEFAULT 'waiting',               -- waiting | running | finished
+    status TEXT DEFAULT 'waiting',
     current_question_index INTEGER DEFAULT -1,
     started_at INTEGER NOT NULL,
     ended_at INTEGER
@@ -114,32 +291,49 @@ CREATE INDEX IF NOT EXISTS idx_live_quiz ON live_sessions(quiz_id);
 """
 
 
-def init_db():
+def init_db() -> None:
+    """Create all tables and run additive migrations. Safe to call repeatedly."""
     conn = get_conn()
-    conn.executescript(SCHEMA)
-    # Lightweight migrations for older DBs
-    _ensure_column(conn, "users", "is_super_admin", "INTEGER DEFAULT 0")
-    _ensure_column(conn, "users", "is_approved", "INTEGER DEFAULT 1")
-    _ensure_column(conn, "users", "is_suspended", "INTEGER DEFAULT 0")
-    _ensure_column(conn, "users", "last_login_at", "INTEGER")
-    _ensure_column(conn, "questions", "time_limit_seconds", "INTEGER DEFAULT 0")
-    _ensure_column(conn, "quizzes", "paginated", "INTEGER DEFAULT 0")
-    _ensure_column(conn, "quizzes", "quiz_password", "TEXT")
-    _ensure_column(conn, "quizzes", "anti_paste", "INTEGER DEFAULT 0")
-    _ensure_column(conn, "quizzes", "anti_rightclick", "INTEGER DEFAULT 0")
-    _ensure_column(conn, "quizzes", "block_selection", "INTEGER DEFAULT 0")
-    _ensure_column(conn, "quizzes", "require_fullscreen", "INTEGER DEFAULT 0")
-    _ensure_column(conn, "quizzes", "detect_tab_switch", "INTEGER DEFAULT 0")
-    _ensure_column(conn, "quizzes", "violation_limit", "INTEGER DEFAULT 0")
-    conn.commit()
-    conn.close()
+    try:
+        conn.executescript(SCHEMA)
+        # Idempotent column adds (so an older DB upgrades to the latest schema in place)
+        _ensure_column(conn, "users", "is_super_admin", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "users", "is_approved", "INTEGER DEFAULT 1")
+        _ensure_column(conn, "users", "is_suspended", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "users", "last_login_at", "INTEGER")
+        _ensure_column(conn, "questions", "time_limit_seconds", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "quizzes", "paginated", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "quizzes", "quiz_password", "TEXT")
+        _ensure_column(conn, "quizzes", "anti_paste", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "quizzes", "anti_rightclick", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "quizzes", "block_selection", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "quizzes", "require_fullscreen", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "quizzes", "detect_tab_switch", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "quizzes", "violation_limit", "INTEGER DEFAULT 0")
+        conn.commit()
+    finally:
+        conn.close()
 
 
-def _ensure_column(conn, table: str, column: str, type_decl: str) -> None:
-    cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+def _ensure_column(conn: Connection, table: str, column: str, type_decl: str) -> None:
+    if IS_POSTGRES:
+        # Postgres supports ADD COLUMN IF NOT EXISTS natively.
+        try:
+            conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {type_decl}"
+            )
+        except Exception:
+            pass
+        return
+    # SQLite: introspect then add if missing.
+    cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if column not in cols:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {type_decl}")
 
+
+# ---------------------------------------------------------------------------
+# Misc helpers used across the app
+# ---------------------------------------------------------------------------
 
 def now_ts() -> int:
     return int(time.time())
