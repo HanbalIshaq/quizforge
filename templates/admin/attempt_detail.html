@@ -8,6 +8,17 @@
   ({{ '%.0f' % (attempt.percentage or 0) }}%) &middot; submitted {{ fmt_ts(attempt.submitted_at) }}
 </p>
 
+{% if violations %}
+  <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+    <p class="font-semibold text-red-800 mb-2">⚠ {{ violations|length }} integrity violation(s) during this attempt</p>
+    <ul class="text-sm text-red-900 space-y-1 max-h-48 overflow-auto">
+      {% for v in violations %}
+        <li><span class="font-mono text-xs text-red-600">{{ fmt_ts(v.created_at) }}</span> &middot; <b>{{ v.type.replace('_', ' ') }}</b>{% if v.details %} &middot; {{ v.details }}{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
 <form method="post" class="space-y-3">
   {% for q in questions %}
     {% set a = answers.get(q.id) %}

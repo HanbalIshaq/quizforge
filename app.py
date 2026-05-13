@@ -383,7 +383,10 @@ def quiz_update_settings(quiz_id):
                 title=?, description=?, kind=?, time_limit_seconds=?,
                 randomize_questions=?, randomize_options=?, show_correct_answers=?,
                 require_name=?, require_email=?, max_attempts=?, pass_mark=?,
-                is_published=?, paginated=?, updated_at=?
+                is_published=?, paginated=?,
+                quiz_password=?, anti_paste=?, anti_rightclick=?, block_selection=?,
+                require_fullscreen=?, detect_tab_switch=?, violation_limit=?,
+                updated_at=?
                WHERE id=?""",
             (
                 (f.get("title") or "Untitled").strip(),
@@ -399,6 +402,13 @@ def quiz_update_settings(quiz_id):
                 int(f.get("pass_mark") or 0),
                 1 if f.get("is_published") else 0,
                 1 if f.get("paginated") else 0,
+                (f.get("quiz_password") or "").strip() or None,
+                1 if f.get("anti_paste") else 0,
+                1 if f.get("anti_rightclick") else 0,
+                1 if f.get("block_selection") else 0,
+                1 if f.get("require_fullscreen") else 0,
+                1 if f.get("detect_tab_switch") else 0,
+                int(f.get("violation_limit") or 0),
                 db.now_ts(),
                 quiz_id,
             ),
@@ -593,12 +603,13 @@ def quiz_results(quiz_id):
     conn = db.get_conn()
     try:
         quiz = owned_quiz_or_404(conn, quiz_id, session["uid"])
-        # Gather every attempt that has activity (submitted OR has ≥1 answer)
+        # Gather every attempt that has activity: submitted, OR has ≥1 answer, OR has ≥1 violation
         raw_attempts = [dict(r) for r in conn.execute(
             """SELECT a.* FROM attempts a
                WHERE a.quiz_id=?
                  AND (a.submitted_at IS NOT NULL
-                      OR EXISTS (SELECT 1 FROM answers WHERE attempt_id=a.id))
+                      OR EXISTS (SELECT 1 FROM answers WHERE attempt_id=a.id)
+                      OR EXISTS (SELECT 1 FROM violations WHERE attempt_id=a.id))
                ORDER BY a.submitted_at DESC NULLS LAST, a.started_at DESC""",
             (quiz_id,),
         ).fetchall()]
@@ -623,10 +634,19 @@ def quiz_results(quiz_id):
                 continue
             seen_partial_keys.add(key)
             attempts.append(a)
+        # Pull violation counts per attempt
+        viol_rows = conn.execute(
+            """SELECT v.attempt_id, COUNT(*) AS n FROM violations v
+               JOIN attempts a ON a.id=v.attempt_id
+               WHERE a.quiz_id=? GROUP BY v.attempt_id""",
+            (quiz_id,),
+        ).fetchall()
+        viol_map = {r["attempt_id"]: r["n"] for r in viol_rows}
         for a in attempts:
             a["started_at_fmt"] = fmt_ts(a["started_at"])
             a["submitted_at_fmt"] = fmt_ts(a["submitted_at"])
             a["is_partial"] = a["submitted_at"] is None
+            a["violation_count"] = viol_map.get(a["id"], 0)
         questions = [dict(r) for r in conn.execute(
             "SELECT * FROM questions WHERE quiz_id=? ORDER BY position", (quiz_id,)
         ).fetchall()]
@@ -787,10 +807,14 @@ def attempt_detail(quiz_id, aid):
             except Exception:
                 d["value"] = d["answer"]
             ans_by_qid[d["question_id"]] = d
+        violations = [dict(v) for v in conn.execute(
+            "SELECT * FROM violations WHERE attempt_id=? ORDER BY created_at", (aid,)
+        ).fetchall()]
         return render_template(
             "admin/attempt_detail.html",
             quiz=dict(quiz), attempt=dict(attempt),
             questions=questions, answers=ans_by_qid,
+            violations=violations,
         )
     finally:
         conn.close()
@@ -927,6 +951,16 @@ def take_quiz(code):
         quiz = conn.execute("SELECT * FROM quizzes WHERE share_code=?", (code,)).fetchone()
         if not quiz or not quiz["is_published"]:
             abort(404)
+        # Password gate
+        if quiz["quiz_password"]:
+            pass_key = f"pass_ok_{quiz['id']}"
+            if not session.get(pass_key):
+                if request.method == "POST" and request.form.get("__password") is not None:
+                    if request.form.get("__password") == quiz["quiz_password"]:
+                        session[pass_key] = True
+                        return redirect(url_for("take_quiz", code=code))
+                    flash("Incorrect quiz password.", "error")
+                return render_template("student/password_gate.html", quiz=dict(quiz))
         questions = [dict(r) for r in conn.execute(
             "SELECT * FROM questions WHERE quiz_id=? ORDER BY position", (quiz["id"],)
         ).fetchall()]
@@ -1013,6 +1047,39 @@ def take_quiz(code):
             partial_answers=partial_answers,
             prefill=prefill,
         )
+    finally:
+        conn.close()
+
+
+@app.route("/q/<code>/violation", methods=["POST"])
+def quiz_log_violation(code):
+    """Log an integrity violation (tab switch, paste attempt, etc) against the draft attempt."""
+    payload = request.get_json(force=True, silent=True) or {}
+    conn = db.get_conn()
+    try:
+        quiz = conn.execute("SELECT * FROM quizzes WHERE share_code=?", (code,)).fetchone()
+        if not quiz:
+            return jsonify({"ok": False}), 404
+        attempt_id = int(payload.get("attempt_id") or 0)
+        a = conn.execute(
+            "SELECT id FROM attempts WHERE id=? AND quiz_id=?", (attempt_id, quiz["id"])
+        ).fetchone()
+        if not a:
+            return jsonify({"ok": False, "error": "attempt not found"}), 400
+        vtype = (payload.get("type") or "other")[:32]
+        details = (payload.get("details") or "")[:500]
+        conn.execute(
+            "INSERT INTO violations(attempt_id, type, details, created_at) VALUES(?,?,?,?)",
+            (attempt_id, vtype, details, db.now_ts()),
+        )
+        count = conn.execute(
+            "SELECT COUNT(*) AS c FROM violations WHERE attempt_id=?", (attempt_id,)
+        ).fetchone()["c"]
+        conn.commit()
+        # Decide whether to auto-submit
+        limit = quiz["violation_limit"] or 0
+        should_submit = bool(limit) and count >= limit
+        return jsonify({"ok": True, "count": count, "limit": limit, "auto_submit": should_submit})
     finally:
         conn.close()
 

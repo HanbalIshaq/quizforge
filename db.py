@@ -87,6 +87,16 @@ CREATE TABLE IF NOT EXISTS answers (
     feedback TEXT
 );
 
+CREATE TABLE IF NOT EXISTS violations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    attempt_id INTEGER NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
+    type TEXT NOT NULL,                          -- tab_switch | paste | copy | rightclick | fullscreen_exit | devtools | other
+    details TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_violations_attempt ON violations(attempt_id);
+
 CREATE TABLE IF NOT EXISTS live_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     quiz_id INTEGER NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
@@ -114,6 +124,13 @@ def init_db():
     _ensure_column(conn, "users", "last_login_at", "INTEGER")
     _ensure_column(conn, "questions", "time_limit_seconds", "INTEGER DEFAULT 0")
     _ensure_column(conn, "quizzes", "paginated", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "quizzes", "quiz_password", "TEXT")
+    _ensure_column(conn, "quizzes", "anti_paste", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "quizzes", "anti_rightclick", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "quizzes", "block_selection", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "quizzes", "require_fullscreen", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "quizzes", "detect_tab_switch", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "quizzes", "violation_limit", "INTEGER DEFAULT 0")
     conn.commit()
     conn.close()
 

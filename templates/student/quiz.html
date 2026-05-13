@@ -64,7 +64,29 @@
     </div>
   {% endif %}
 
-  <form method="post" class="space-y-4" id="quiz-form" data-code="{{ quiz.share_code }}" data-attempt-id="{{ attempt_id }}">
+  {% set anti_cheat_on = quiz.detect_tab_switch or quiz.anti_paste or quiz.anti_rightclick or quiz.block_selection or quiz.require_fullscreen %}
+  {% if anti_cheat_on %}
+    <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
+      <b>🛡 Integrity mode is ON.</b> The following protections are active during this exam:
+      <ul class="list-disc pl-5 mt-1">
+        {% if quiz.detect_tab_switch %}<li>Tab / window switches are detected and logged.</li>{% endif %}
+        {% if quiz.require_fullscreen %}<li>The exam runs in fullscreen — exiting counts as a violation.</li>{% endif %}
+        {% if quiz.anti_paste %}<li>Copy / paste / cut is disabled.</li>{% endif %}
+        {% if quiz.anti_rightclick %}<li>Right-click is disabled.</li>{% endif %}
+        {% if quiz.block_selection %}<li>Selecting text is disabled.</li>{% endif %}
+        {% if quiz.violation_limit %}<li>After <b>{{ quiz.violation_limit }}</b> violation(s), the quiz will auto-submit.</li>{% endif %}
+      </ul>
+    </div>
+  {% endif %}
+
+  <form method="post" class="space-y-4" id="quiz-form" data-code="{{ quiz.share_code }}" data-attempt-id="{{ attempt_id }}"
+        data-detect-tab="{{ '1' if quiz.detect_tab_switch else '0' }}"
+        data-require-fullscreen="{{ '1' if quiz.require_fullscreen else '0' }}"
+        data-anti-paste="{{ '1' if quiz.anti_paste else '0' }}"
+        data-anti-rightclick="{{ '1' if quiz.anti_rightclick else '0' }}"
+        data-block-selection="{{ '1' if quiz.block_selection else '0' }}"
+        data-violation-limit="{{ quiz.violation_limit or 0 }}"
+        {% if quiz.block_selection %}style="user-select:none; -webkit-user-select:none;"{% endif %}>
     <div id="student-info" class="bg-white border border-slate-200 rounded-lg p-5 space-y-3">
       {% if quiz.require_name %}
         <label class="block text-sm">
@@ -354,6 +376,105 @@
         if (overall <= 30 && overallEl) overallEl.classList.add('text-red-700');
       }, 1000);
     {% endif %}
+
+    // ====== ANTI-CHEATING ======
+    const detectTab     = form.dataset.detectTab === '1';
+    const reqFs         = form.dataset.requireFullscreen === '1';
+    const antiPaste     = form.dataset.antiPaste === '1';
+    const antiRight     = form.dataset.antiRightclick === '1';
+    const blockSel      = form.dataset.blockSelection === '1';
+    const vLimit        = parseInt(form.dataset.violationLimit || '0', 10);
+    let violationCount  = 0;
+
+    function showViolationBanner(msg) {
+      let el = document.getElementById('violation-banner');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'violation-banner';
+        el.className = 'fixed top-4 right-4 z-50 max-w-sm bg-red-100 border border-red-300 text-red-900 px-4 py-2 rounded shadow-lg text-sm';
+        document.body.appendChild(el);
+      }
+      el.textContent = msg;
+      el.style.display = 'block';
+      setTimeout(function() { el.style.display = 'none'; }, 4000);
+    }
+
+    function reportViolation(type, details) {
+      const payload = JSON.stringify({ attempt_id: attemptId, type: type, details: details || '' });
+      try {
+        navigator.sendBeacon && navigator.sendBeacon(
+          '/q/' + code + '/violation',
+          new Blob([payload], { type: 'application/json' })
+        );
+      } catch (_) {}
+      fetch('/q/' + code + '/violation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true,
+      }).then(function(r) { return r.json(); }).then(function(j) {
+        violationCount = j.count || (violationCount + 1);
+        const limitMsg = vLimit ? (' (' + violationCount + '/' + vLimit + ')') : '';
+        showViolationBanner('⚠ Integrity violation logged: ' + type + limitMsg);
+        if (j.auto_submit && !isSubmitting) {
+          isSubmitting = true;
+          alert('Too many integrity violations — your quiz will now be submitted.');
+          form.submit();
+        }
+      }).catch(function() { /* offline — already queued via sendBeacon */ });
+    }
+
+    // Tab/window switch detection
+    if (detectTab) {
+      document.addEventListener('visibilitychange', function() {
+        if (document.hidden && !isSubmitting) reportViolation('tab_switch', 'document hidden');
+      });
+      window.addEventListener('blur', function() {
+        if (!isSubmitting) reportViolation('window_blur', 'window lost focus');
+      });
+    }
+
+    // Block paste / copy / cut
+    if (antiPaste) {
+      ['paste','copy','cut'].forEach(function(evt) {
+        document.addEventListener(evt, function(e) {
+          e.preventDefault();
+          if (!isSubmitting) reportViolation(evt, '');
+        });
+      });
+    }
+
+    // Block right-click
+    if (antiRight) {
+      document.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        if (!isSubmitting) reportViolation('rightclick', '');
+      });
+    }
+
+    // Block text selection (CSS handles visual; also block selectstart)
+    if (blockSel) {
+      document.addEventListener('selectstart', function(e) { e.preventDefault(); });
+    }
+
+    // Fullscreen requirement
+    function enterFullscreen() {
+      const el = document.documentElement;
+      if (el.requestFullscreen) return el.requestFullscreen();
+      if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
+      if (el.msRequestFullscreen) return el.msRequestFullscreen();
+    }
+    if (reqFs) {
+      const tryFs = function() { enterFullscreen().catch(function() {}); };
+      document.addEventListener('click', tryFs, { once: true });
+      const beginBtn = document.getElementById('begin-btn');
+      if (beginBtn) beginBtn.addEventListener('click', tryFs, { once: true });
+      document.addEventListener('fullscreenchange', function() {
+        if (!document.fullscreenElement && !isSubmitting) {
+          reportViolation('fullscreen_exit', '');
+        }
+      });
+    }
   })();
 </script>
 {% endblock %}
