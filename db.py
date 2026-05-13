@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
     max_attempts INTEGER DEFAULT 0,
     pass_mark INTEGER DEFAULT 0,
     is_published INTEGER DEFAULT 1,
+    paginated INTEGER DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
@@ -112,6 +113,7 @@ def init_db():
     _ensure_column(conn, "users", "is_suspended", "INTEGER DEFAULT 0")
     _ensure_column(conn, "users", "last_login_at", "INTEGER")
     _ensure_column(conn, "questions", "time_limit_seconds", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "quizzes", "paginated", "INTEGER DEFAULT 0")
     conn.commit()
     conn.close()
 

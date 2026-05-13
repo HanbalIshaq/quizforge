@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{{ quiz.title }}{% endblock %}
 {% block content %}
+{% set has_per_q_timers = questions|selectattr('time_limit_seconds')|list|length > 0 %}
+{% set paginated = quiz.paginated or (has_per_q_timers and quiz.kind == 'exam') %}
+
 <div class="max-w-3xl mx-auto">
   <div class="flex items-center gap-2 mb-1">
     <h1 class="text-3xl font-bold">{{ quiz.title }}</h1>
@@ -17,37 +20,52 @@
     {{ questions|length }} question(s)
     {% if quiz.kind == 'exam' and quiz.time_limit_seconds %} &middot; {{ (quiz.time_limit_seconds // 60) }} min limit{% endif %}
     {% if quiz.kind == 'exam' and quiz.pass_mark %} &middot; pass mark {{ quiz.pass_mark }}%{% endif %}
+    {% if paginated %} &middot; one question at a time{% endif %}
     {% if quiz.kind == 'survey' %} &middot; your answers are anonymous{% endif %}
     {% if quiz.kind == 'poll' %} &middot; no grading — your opinion counts{% endif %}
   </p>
 
-  {% set has_per_q_timers = questions|selectattr('time_limit_seconds')|list|length > 0 %}
-
-  {# Sticky info banner explaining timer mode #}
-  {% if quiz.time_limit_seconds or has_per_q_timers %}
+  {# Sticky timer / progress banner #}
+  {% if quiz.time_limit_seconds or has_per_q_timers or paginated %}
     <div class="sticky top-0 z-10 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 flex items-center justify-between gap-4 shadow-sm">
       <div class="text-sm text-amber-900">
-        {% if quiz.time_limit_seconds and has_per_q_timers %}
+        {% if paginated and quiz.time_limit_seconds and has_per_q_timers %}
+          <b>Two timers — one question at a time:</b> each question has its own countdown that auto-advances when it hits 0. The whole exam also has an overall countdown.
+        {% elif paginated and has_per_q_timers %}
+          <b>One question at a time:</b> each timed question auto-advances when its countdown hits 0. Untimed questions need you to click <b>Next</b>.
+        {% elif paginated %}
+          <b>One question at a time:</b> click <b>Next</b> to move on. You can't go back to a previous question.
+        {% elif quiz.time_limit_seconds and has_per_q_timers %}
           <b>Two timers:</b> the whole exam is timed AND each timed question has its own countdown. When a question's timer hits 0, it locks. When the exam timer hits 0, your quiz auto-submits.
         {% elif quiz.time_limit_seconds %}
           <b>Whole-exam timer:</b> you have <b>{{ (quiz.time_limit_seconds // 60) }} min {{ '%02d' % (quiz.time_limit_seconds % 60) }} sec</b> for the entire quiz. Auto-submits when time runs out.
         {% else %}
-          <b>Per-question timer:</b> each timed question shows its own countdown. When a question's timer hits 0, that question locks but the rest of the quiz stays open. Submit when you're done.
+          <b>Per-question timer:</b> each timed question shows its own countdown. When a question's timer hits 0, that question locks.
         {% endif %}
       </div>
-      {% if quiz.time_limit_seconds %}
-        <div class="text-right whitespace-nowrap">
-          <p class="text-xs text-amber-700">Whole exam</p>
-          <p class="text-2xl font-mono font-bold text-amber-900" id="overall-timer">
-            {{ (quiz.time_limit_seconds // 60) }}:{{ '%02d' % (quiz.time_limit_seconds % 60) }}
-          </p>
-        </div>
-      {% endif %}
+      <div class="flex items-center gap-4">
+        {% if paginated %}
+          <div class="text-right whitespace-nowrap">
+            <p class="text-xs text-amber-700">Progress</p>
+            <p class="text-lg font-mono font-bold text-amber-900">
+              <span id="progress-current">1</span> / {{ questions|length }}
+            </p>
+          </div>
+        {% endif %}
+        {% if quiz.time_limit_seconds %}
+          <div class="text-right whitespace-nowrap">
+            <p class="text-xs text-amber-700">Whole exam</p>
+            <p class="text-2xl font-mono font-bold text-amber-900" id="overall-timer">
+              {{ (quiz.time_limit_seconds // 60) }}:{{ '%02d' % (quiz.time_limit_seconds % 60) }}
+            </p>
+          </div>
+        {% endif %}
+      </div>
     </div>
   {% endif %}
 
   <form method="post" class="space-y-4" id="quiz-form">
-    <div class="bg-white border border-slate-200 rounded-lg p-5 space-y-3">
+    <div id="student-info" class="bg-white border border-slate-200 rounded-lg p-5 space-y-3">
       {% if quiz.require_name %}
         <label class="block text-sm">
           <span class="font-medium">Your name <span class="text-red-500">*</span></span>
@@ -60,120 +78,201 @@
           <input type="email" name="student_email" required class="mt-1 w-full px-3 py-2 border rounded" />
         </label>
       {% endif %}
+      {% if paginated %}
+        <p class="text-xs text-slate-500 pt-1">When you're ready, click <b>Begin</b> below to see the first question.</p>
+        <button type="button" id="begin-btn" class="px-4 py-2 bg-brand-600 text-white rounded hover:bg-brand-700 text-sm">Begin →</button>
+      {% endif %}
     </div>
 
-    {% for q in questions %}
-      <div class="bg-white border border-slate-200 rounded-lg p-5 question-block"
-           data-qid="{{ q.id }}"
-           data-time="{{ q.time_limit_seconds or 0 }}">
-        <div class="flex items-start justify-between gap-3 mb-1">
-          <p class="text-xs text-slate-500">Q{{ loop.index }} &middot; {{ q.points }} pt{% if q.points != 1 %}s{% endif %}</p>
-          {% if q.time_limit_seconds %}
-            <div class="text-xs text-amber-700 font-mono whitespace-nowrap"
-                 data-q-timer="{{ q.id }}"
-                 data-q-time-total="{{ q.time_limit_seconds }}">
-              ⏱ <span class="q-time-display font-bold">{{ '%d:%02d' % (q.time_limit_seconds // 60, q.time_limit_seconds % 60) }}</span>
+    <div id="questions-container" class="space-y-4 {% if paginated %}hidden{% endif %}">
+      {% for q in questions %}
+        <div class="bg-white border border-slate-200 rounded-lg p-5 question-block {% if paginated and not loop.first %}hidden{% endif %}"
+             data-qid="{{ q.id }}"
+             data-time="{{ q.time_limit_seconds or 0 }}"
+             data-idx="{{ loop.index0 }}">
+          <div class="flex items-start justify-between gap-3 mb-1">
+            <p class="text-xs text-slate-500">Q{{ loop.index }} of {{ questions|length }} &middot; {{ q.points }} pt{% if q.points != 1 %}s{% endif %}</p>
+            {% if q.time_limit_seconds %}
+              <div class="text-sm text-amber-700 font-mono whitespace-nowrap"
+                   data-q-timer="{{ q.id }}"
+                   data-q-time-total="{{ q.time_limit_seconds }}">
+                ⏱ <span class="q-time-display font-bold">{{ '%d:%02d' % (q.time_limit_seconds // 60, q.time_limit_seconds % 60) }}</span>
+              </div>
+            {% endif %}
+          </div>
+          <p class="font-medium mb-3 text-lg">{{ q.text }}</p>
+
+          {% if q.type == 'mcq_single' or q.type == 'poll' %}
+            <div class="space-y-2">
+              {% for opt in q.options %}
+                <label class="flex items-start gap-2 p-2 border rounded hover:bg-slate-50 cursor-pointer">
+                  <input type="radio" name="q_{{ q.id }}" value="{{ loop.index0 }}" class="mt-1" />
+                  <span>{{ opt }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          {% elif q.type == 'mcq_multi' %}
+            <div class="space-y-2">
+              {% for opt in q.options %}
+                <label class="flex items-start gap-2 p-2 border rounded hover:bg-slate-50 cursor-pointer">
+                  <input type="checkbox" name="q_{{ q.id }}" value="{{ loop.index0 }}" class="mt-1" />
+                  <span>{{ opt }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          {% elif q.type == 'true_false' %}
+            <div class="flex gap-3">
+              <label class="flex-1 flex items-center justify-center gap-2 py-3 border rounded hover:bg-slate-50 cursor-pointer">
+                <input type="radio" name="q_{{ q.id }}" value="0" /> True
+              </label>
+              <label class="flex-1 flex items-center justify-center gap-2 py-3 border rounded hover:bg-slate-50 cursor-pointer">
+                <input type="radio" name="q_{{ q.id }}" value="1" /> False
+              </label>
+            </div>
+          {% elif q.type == 'short_answer' or q.type == 'fill_blank' %}
+            <input name="q_{{ q.id }}" class="w-full px-3 py-2 border rounded" placeholder="Your answer..." />
+          {% elif q.type == 'long_answer' or q.type == 'open_ended' or q.type == 'word_cloud' %}
+            <textarea name="q_{{ q.id }}" rows="4" class="w-full px-3 py-2 border rounded" placeholder="Your answer..."></textarea>
+          {% elif q.type == 'rating' %}
+            <div class="flex gap-2">
+              {% for n in [1,2,3,4,5] %}
+                <label class="flex-1 flex items-center justify-center py-3 border rounded hover:bg-slate-50 cursor-pointer">
+                  <input type="radio" name="q_{{ q.id }}" value="{{ n }}" class="sr-only peer" />
+                  <span class="text-xl peer-checked:text-amber-500">{{ n }} &#9733;</span>
+                </label>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          {% if paginated %}
+            <div class="mt-4 flex justify-end">
+              <button type="button" class="next-btn px-4 py-2 bg-brand-600 text-white rounded hover:bg-brand-700 text-sm">
+                {% if loop.last %}Submit ✓{% else %}Next →{% endif %}
+              </button>
             </div>
           {% endif %}
         </div>
-        <p class="font-medium mb-3">{{ q.text }}</p>
-
-        {% if q.type == 'mcq_single' %}
-          <div class="space-y-2">
-            {% for opt in q.options %}
-              <label class="flex items-start gap-2 p-2 border rounded hover:bg-slate-50 cursor-pointer">
-                <input type="radio" name="q_{{ q.id }}" value="{{ loop.index0 }}" class="mt-1" />
-                <span>{{ opt }}</span>
-              </label>
-            {% endfor %}
-          </div>
-
-        {% elif q.type == 'mcq_multi' %}
-          <div class="space-y-2">
-            {% for opt in q.options %}
-              <label class="flex items-start gap-2 p-2 border rounded hover:bg-slate-50 cursor-pointer">
-                <input type="checkbox" name="q_{{ q.id }}" value="{{ loop.index0 }}" class="mt-1" />
-                <span>{{ opt }}</span>
-              </label>
-            {% endfor %}
-          </div>
-
-        {% elif q.type == 'true_false' %}
-          <div class="flex gap-3">
-            <label class="flex-1 flex items-center justify-center gap-2 py-3 border rounded hover:bg-slate-50 cursor-pointer">
-              <input type="radio" name="q_{{ q.id }}" value="0" /> True
-            </label>
-            <label class="flex-1 flex items-center justify-center gap-2 py-3 border rounded hover:bg-slate-50 cursor-pointer">
-              <input type="radio" name="q_{{ q.id }}" value="1" /> False
-            </label>
-          </div>
-
-        {% elif q.type == 'short_answer' or q.type == 'fill_blank' %}
-          <input name="q_{{ q.id }}" class="w-full px-3 py-2 border rounded" placeholder="Your answer..." />
-
-        {% elif q.type == 'long_answer' or q.type == 'open_ended' or q.type == 'word_cloud' %}
-          <textarea name="q_{{ q.id }}" rows="4" class="w-full px-3 py-2 border rounded" placeholder="Your answer..."></textarea>
-
-        {% elif q.type == 'rating' %}
-          <div class="flex gap-2">
-            {% for n in [1,2,3,4,5] %}
-              <label class="flex-1 flex items-center justify-center py-3 border rounded hover:bg-slate-50 cursor-pointer">
-                <input type="radio" name="q_{{ q.id }}" value="{{ n }}" class="sr-only peer" />
-                <span class="text-xl peer-checked:text-amber-500">{{ n }} &#9733;</span>
-              </label>
-            {% endfor %}
-          </div>
-
-        {% elif q.type == 'poll' %}
-          <div class="space-y-2">
-            {% for opt in q.options %}
-              <label class="flex items-start gap-2 p-2 border rounded hover:bg-slate-50 cursor-pointer">
-                <input type="radio" name="q_{{ q.id }}" value="{{ loop.index0 }}" class="mt-1" />
-                <span>{{ opt }}</span>
-              </label>
-            {% endfor %}
-          </div>
-        {% endif %}
-      </div>
-    {% endfor %}
-
-    <div class="flex justify-end">
-      <button class="px-6 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">Submit</button>
+      {% endfor %}
     </div>
+
+    {% if not paginated %}
+      <div class="flex justify-end">
+        <button class="px-6 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">Submit</button>
+      </div>
+    {% endif %}
   </form>
 </div>
 
 <script>
   (function() {
     function fmt(s) { return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+    const paginated = {{ 'true' if paginated else 'false' }};
+    const blocks = Array.from(document.querySelectorAll('.question-block'));
+    const form = document.getElementById('quiz-form');
+    const progressEl = document.getElementById('progress-current');
+    let currentIdx = 0;
+    let currentTimerId = null;
 
-    // Per-question timers — lock the inputs in that block when expired
-    document.querySelectorAll('.question-block').forEach(function(block) {
+    function lockBlock(block) {
+      block.querySelectorAll('input, textarea').forEach(function(el) { el.disabled = true; });
+      const nb = block.querySelector('.next-btn');
+      if (nb) nb.disabled = false; // keep Next clickable so user can advance manually too
+    }
+
+    function startQuestionTimer(block) {
+      if (currentTimerId) { clearInterval(currentTimerId); currentTimerId = null; }
       const total = parseInt(block.dataset.time || '0', 10);
       if (!total) return;
       let remaining = total;
       const tEl = block.querySelector('.q-time-display');
-      const lock = function() {
-        block.querySelectorAll('input, textarea, button').forEach(function(el) { el.disabled = true; });
-        block.classList.add('opacity-60');
-        const banner = document.createElement('div');
-        banner.className = 'mt-2 inline-block px-2 py-1 rounded text-xs bg-red-100 text-red-700';
-        banner.textContent = '⏱ Time up for this question — locked.';
-        block.appendChild(banner);
-      };
-      const id = setInterval(function() {
+      currentTimerId = setInterval(function() {
         remaining--;
-        if (remaining <= 0) { tEl.textContent = '0:00'; lock(); clearInterval(id); return; }
-        tEl.textContent = fmt(remaining);
-        if (remaining <= 10) tEl.classList.add('text-red-600');
+        if (remaining <= 0) {
+          if (tEl) tEl.textContent = '0:00';
+          lockBlock(block);
+          clearInterval(currentTimerId);
+          currentTimerId = null;
+          if (paginated) {
+            // auto-advance
+            setTimeout(function() { advance(); }, 300);
+          }
+          return;
+        }
+        if (tEl) tEl.textContent = fmt(remaining);
+        if (remaining <= 10 && tEl) tEl.classList.add('text-red-600');
       }, 1000);
-    });
+    }
 
-    // Whole-exam timer — auto-submit the form when expired
+    function showBlock(idx) {
+      blocks.forEach(function(b, i) {
+        if (i === idx) b.classList.remove('hidden');
+        else b.classList.add('hidden');
+      });
+      if (progressEl) progressEl.textContent = (idx + 1);
+      const block = blocks[idx];
+      if (block) startQuestionTimer(block);
+    }
+
+    function advance() {
+      const next = currentIdx + 1;
+      if (next >= blocks.length) {
+        form.submit();
+        return;
+      }
+      currentIdx = next;
+      showBlock(currentIdx);
+    }
+
+    if (paginated) {
+      // Hide questions until "Begin" pressed
+      const beginBtn = document.getElementById('begin-btn');
+      if (beginBtn) {
+        beginBtn.addEventListener('click', function() {
+          // Validate name/email if required
+          const nameEl = form.querySelector('input[name="student_name"]');
+          const emailEl = form.querySelector('input[name="student_email"]');
+          if (nameEl && !nameEl.value.trim()) { nameEl.focus(); return; }
+          if (emailEl && (!emailEl.value.trim() || !emailEl.checkValidity())) { emailEl.focus(); return; }
+          document.getElementById('student-info').classList.add('hidden');
+          document.getElementById('questions-container').classList.remove('hidden');
+          showBlock(0);
+        });
+      }
+
+      // Wire Next buttons
+      blocks.forEach(function(block, i) {
+        const btn = block.querySelector('.next-btn');
+        if (!btn) return;
+        btn.addEventListener('click', function() { advance(); });
+      });
+    } else {
+      // Non-paginated: start all per-question timers up-front
+      blocks.forEach(function(block) {
+        const total = parseInt(block.dataset.time || '0', 10);
+        if (!total) return;
+        let remaining = total;
+        const tEl = block.querySelector('.q-time-display');
+        const lock = function() {
+          block.querySelectorAll('input, textarea, button').forEach(function(el) { el.disabled = true; });
+          block.classList.add('opacity-60');
+          const banner = document.createElement('div');
+          banner.className = 'mt-2 inline-block px-2 py-1 rounded text-xs bg-red-100 text-red-700';
+          banner.textContent = '⏱ Time up for this question — locked.';
+          block.appendChild(banner);
+        };
+        const id = setInterval(function() {
+          remaining--;
+          if (remaining <= 0) { if (tEl) tEl.textContent = '0:00'; lock(); clearInterval(id); return; }
+          if (tEl) tEl.textContent = fmt(remaining);
+          if (remaining <= 10 && tEl) tEl.classList.add('text-red-600');
+        }, 1000);
+      });
+    }
+
+    // Whole-exam timer — auto-submit when expired
     {% if quiz.time_limit_seconds %}
       let overall = {{ quiz.time_limit_seconds }};
       const overallEl = document.getElementById('overall-timer');
-      const form = document.getElementById('quiz-form');
       setInterval(function() {
         overall--;
         if (overall <= 0) { form.submit(); return; }

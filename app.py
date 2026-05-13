@@ -381,7 +381,7 @@ def quiz_update_settings(quiz_id):
                 title=?, description=?, kind=?, time_limit_seconds=?,
                 randomize_questions=?, randomize_options=?, show_correct_answers=?,
                 require_name=?, require_email=?, max_attempts=?, pass_mark=?,
-                is_published=?, updated_at=?
+                is_published=?, paginated=?, updated_at=?
                WHERE id=?""",
             (
                 (f.get("title") or "Untitled").strip(),
@@ -396,6 +396,7 @@ def quiz_update_settings(quiz_id):
                 int(f.get("max_attempts") or 0),
                 int(f.get("pass_mark") or 0),
                 1 if f.get("is_published") else 0,
+                1 if f.get("paginated") else 0,
                 db.now_ts(),
                 quiz_id,
             ),
@@ -489,6 +490,33 @@ def question_reorder(quiz_id):
             )
         conn.commit()
         return jsonify({"ok": True})
+    finally:
+        conn.close()
+
+
+@app.route("/admin/quizzes/<int:quiz_id>/apply-time", methods=["POST"])
+@login_required
+def quiz_apply_time(quiz_id):
+    """Bulk-set time_limit_seconds on every question in this quiz."""
+    secs = max(0, int(request.form.get("seconds") or 0))
+    only_unset = request.form.get("only_unset") == "on"
+    conn = db.get_conn()
+    try:
+        owned_quiz_or_404(conn, quiz_id, session["uid"])
+        if only_unset:
+            cur = conn.execute(
+                "UPDATE questions SET time_limit_seconds=? WHERE quiz_id=? AND (time_limit_seconds IS NULL OR time_limit_seconds=0)",
+                (secs, quiz_id),
+            )
+        else:
+            cur = conn.execute(
+                "UPDATE questions SET time_limit_seconds=? WHERE quiz_id=?",
+                (secs, quiz_id),
+            )
+        conn.execute("UPDATE quizzes SET updated_at=? WHERE id=?", (db.now_ts(), quiz_id))
+        conn.commit()
+        flash(f"Set {secs}s time limit on {cur.rowcount} question(s).", "success")
+        return redirect(url_for("quiz_edit", quiz_id=quiz_id))
     finally:
         conn.close()
 
