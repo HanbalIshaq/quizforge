@@ -593,8 +593,8 @@ def quiz_results(quiz_id):
     conn = db.get_conn()
     try:
         quiz = owned_quiz_or_404(conn, quiz_id, session["uid"])
-        # Include drafts that have at least one answer (real partial attempts), exclude empty drafts
-        attempts = [dict(r) for r in conn.execute(
+        # Gather every attempt that has activity (submitted OR has ≥1 answer)
+        raw_attempts = [dict(r) for r in conn.execute(
             """SELECT a.* FROM attempts a
                WHERE a.quiz_id=?
                  AND (a.submitted_at IS NOT NULL
@@ -602,6 +602,27 @@ def quiz_results(quiz_id):
                ORDER BY a.submitted_at DESC NULLS LAST, a.started_at DESC""",
             (quiz_id,),
         ).fetchall()]
+        # Show: all submitted attempts + only the LATEST partial per (name+email) when the
+        # student has not yet submitted (avoids 3 rows for one student who refreshed)
+        def _stu_key(a):
+            return ((a.get("student_name") or "").strip().lower(),
+                    (a.get("student_email") or "").strip().lower())
+        submitted_keys = {_stu_key(a) for a in raw_attempts if a["submitted_at"]}
+        seen_partial_keys: set = set()
+        attempts = []
+        for a in raw_attempts:
+            if a["submitted_at"]:
+                attempts.append(a)
+                continue
+            key = _stu_key(a)
+            # Drop partials for students who already submitted
+            if key in submitted_keys:
+                continue
+            # Drop older partials for same student (raw_attempts is started_at DESC)
+            if key in seen_partial_keys:
+                continue
+            seen_partial_keys.add(key)
+            attempts.append(a)
         for a in attempts:
             a["started_at_fmt"] = fmt_ts(a["started_at"])
             a["submitted_at_fmt"] = fmt_ts(a["submitted_at"])
@@ -1049,8 +1070,22 @@ def quiz_save_draft(code):
                     0 if manual else 1,
                 ),
             )
+        # Roll up current score so partial attempts show real progress in Results
+        earned = conn.execute(
+            "SELECT COALESCE(SUM(points_earned), 0) AS s FROM answers WHERE attempt_id=?",
+            (attempt_id,),
+        ).fetchone()["s"]
+        total = conn.execute(
+            "SELECT COALESCE(SUM(points), 0) AS m FROM questions WHERE quiz_id=?",
+            (quiz["id"],),
+        ).fetchone()["m"]
+        pct = (float(earned) / float(total) * 100) if total else 0
+        conn.execute(
+            "UPDATE attempts SET score=?, max_score=?, percentage=? WHERE id=?",
+            (float(earned), float(total), pct, attempt_id),
+        )
         conn.commit()
-        return jsonify({"ok": True, "attempt_id": attempt_id})
+        return jsonify({"ok": True, "attempt_id": attempt_id, "score": earned, "max_score": total, "percentage": pct})
     finally:
         conn.close()
 

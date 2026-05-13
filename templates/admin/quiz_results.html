@@ -44,7 +44,9 @@
           <td class="px-4 py-2">{{ '%.1f' % (a.score or 0) }} / {{ '%.0f' % (a.max_score or 0) }}</td>
           <td class="px-4 py-2">
             {{ '%.0f' % (a.percentage or 0) }}%
-            {% if quiz.pass_mark and a.percentage is not none %}
+            {% if a.is_partial %}
+              <span class="ml-1 text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">In progress</span>
+            {% elif quiz.pass_mark and a.percentage is not none %}
               {% if a.percentage >= quiz.pass_mark %}
                 <span class="ml-1 text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Pass</span>
               {% else %}
