@@ -204,6 +204,26 @@
     let currentTimerId = null;
     let isSubmitting = false;
 
+    // ====== PREVENT ACCIDENTAL ENTER SUBMIT ======
+    // HTML auto-submits a form when Enter is pressed in a single text input.
+    // We don't want that — only an explicit Submit-button click should submit the quiz.
+    form.addEventListener('keydown', function(e) {
+      if (e.key !== 'Enter') return;
+      const t = e.target;
+      if (t.tagName === 'TEXTAREA') return; // multi-line answers need Enter
+      if (t.tagName === 'BUTTON' && (t.type === 'submit' || t.classList.contains('next-btn'))) return;
+      // Allow Enter on the explicit Begin button
+      if (t.id === 'begin-btn') return;
+      // Block accidental submission
+      e.preventDefault();
+      // In paginated mode, Enter on the name/email field should trigger Begin instead
+      const beginBtn = document.getElementById('begin-btn');
+      if (beginBtn && !document.getElementById('student-info').classList.contains('hidden')
+          && (t.name === 'student_name' || t.name === 'student_email')) {
+        beginBtn.click();
+      }
+    });
+
     // ====== AUTO-SAVE ======
     function gatherAnswers() {
       const ans = {};
