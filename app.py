@@ -1049,6 +1049,38 @@ def _is_host_sid(session_id: int) -> bool:
     return bool(state) and request.sid in state.get("host_sids", set())
 
 
+def _finalize_live_attempts(session_id: int) -> None:
+    """When a live session ends, finalize each participant's attempt row with submitted_at + score."""
+    state = LIVE_STATE.get(session_id)
+    if not state:
+        return
+    quiz_id = state.get("quiz_id")
+    conn = db.get_conn()
+    try:
+        max_score = 0.0
+        if quiz_id:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(points), 0) AS s FROM questions WHERE quiz_id=?",
+                (quiz_id,),
+            ).fetchone()
+            max_score = float(row["s"] or 0)
+        now = db.now_ts()
+        for sid, p in state["participants"].items():
+            attempt_id = p.get("attempt_id")
+            if not attempt_id:
+                continue
+            score = float(p.get("score", 0))
+            pct = (score / max_score * 100) if max_score else 0
+            conn.execute(
+                """UPDATE attempts SET submitted_at=?, score=?, max_score=?, percentage=?
+                   WHERE id=? AND submitted_at IS NULL""",
+                (now, score, max_score, pct, attempt_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 @socketio.on("join_student")
 def on_join_student(data):
     join_code = (data.get("join_code") or "").upper()
@@ -1069,8 +1101,25 @@ def on_join_student(data):
     session_id = s["id"]
     join_room(f"live_{session_id}")
     state = LIVE_STATE[session_id]
+    # Persist this participant as an attempt so they show up in Results
+    conn2 = db.get_conn()
+    try:
+        cur = conn2.execute(
+            """INSERT INTO attempts(quiz_id, student_name, started_at, ip_address, live_session_id)
+               VALUES(?,?,?,?,?)""",
+            (s["quiz_id"], name, db.now_ts(), request.remote_addr, session_id),
+        )
+        attempt_id = cur.lastrowid
+        conn2.commit()
+    finally:
+        conn2.close()
     with LIVE_LOCK:
-        state["participants"][request.sid] = {"name": name, "score": 0}
+        state["participants"][request.sid] = {
+            "name": name,
+            "score": 0,
+            "attempt_id": attempt_id,
+        }
+        state["quiz_id"] = s["quiz_id"]
         SID_TO_SESSION[request.sid] = session_id
     emit("student_joined", {"name": name, "session_id": session_id})
     emit("participants_update", {
@@ -1119,6 +1168,7 @@ def on_host_next(data):
                 (db.now_ts(), session_id),
             )
             conn.commit()
+            _finalize_live_attempts(session_id)
             state = LIVE_STATE[session_id]
             leaderboard = sorted(
                 [{"name": p["name"], "score": p["score"]} for p in state["participants"].values()],
@@ -1192,6 +1242,7 @@ def on_host_end(data):
         conn.commit()
     finally:
         conn.close()
+    _finalize_live_attempts(session_id)
     state = LIVE_STATE[session_id]
     leaderboard = sorted(
         [{"name": p["name"], "score": p["score"]} for p in state["participants"].values()],
@@ -1219,14 +1270,31 @@ def on_student_answer(data):
     sid = request.sid
     if sid not in state["participants"]:
         return
+    attempt_id = state["participants"][sid].get("attempt_id")
     with LIVE_LOCK:
         if sid in state["answers_per_q"][qid]:
             return  # one answer per student per question
         state["answers_per_q"][qid][sid] = answer
-        # grade if auto
-        is_correct, pts, _manual = grading.grade_answer(q, answer)
+        is_correct, pts, manual = grading.grade_answer(q, answer)
         if is_correct:
             state["participants"][sid]["score"] += int(pts)
+    # Persist answer
+    if attempt_id:
+        conn = db.get_conn()
+        try:
+            conn.execute(
+                """INSERT INTO answers(attempt_id, question_id, answer, is_correct, points_earned, graded)
+                   VALUES(?,?,?,?,?,?)""",
+                (
+                    attempt_id, qid, json.dumps(answer),
+                    None if is_correct is None else (1 if is_correct else 0),
+                    pts,
+                    0 if manual else 1,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
     # send aggregate to host
     agg = _aggregate(qid, q["type"], state["answers_per_q"][qid])
     socketio.emit("answer_stats", {

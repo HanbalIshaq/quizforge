@@ -19,6 +19,7 @@
       <tr>
         <th class="px-4 py-2">Name</th>
         <th class="px-4 py-2">Email</th>
+        <th class="px-4 py-2">Source</th>
         <th class="px-4 py-2">Score</th>
         <th class="px-4 py-2">%</th>
         <th class="px-4 py-2">Submitted</th>
@@ -30,6 +31,13 @@
         <tr class="border-t border-slate-200 hover:bg-slate-50">
           <td class="px-4 py-2 font-medium">{{ a.student_name or 'Anonymous' }}</td>
           <td class="px-4 py-2 text-slate-500">{{ a.student_email or '' }}</td>
+          <td class="px-4 py-2">
+            {% if a.live_session_id %}
+              <span class="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Live</span>
+            {% else %}
+              <span class="text-xs px-1.5 py-0.5 rounded bg-brand-100 text-brand-700">Async</span>
+            {% endif %}
+          </td>
           <td class="px-4 py-2">{{ '%.1f' % (a.score or 0) }} / {{ '%.0f' % (a.max_score or 0) }}</td>
           <td class="px-4 py-2">
             {{ '%.0f' % (a.percentage or 0) }}%
@@ -50,7 +58,7 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="6" class="px-4 py-8 text-center text-slate-500">No attempts yet.</td></tr>
+        <tr><td colspan="7" class="px-4 py-8 text-center text-slate-500">No attempts yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
