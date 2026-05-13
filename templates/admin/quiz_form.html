@@ -141,5 +141,5 @@ mcq_multi,Pick prime numbers,2,3,4,5,A|B|D,2</pre>
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/quiz-editor.js') }}"></script>
+<script src="{{ url_for('static', filename='js/quiz-editor.js') }}?v={{ asset_v }}"></script>
 {% endblock %}

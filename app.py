@@ -95,9 +95,17 @@ def fmt_ts(ts):
     return datetime.fromtimestamp(int(ts)).strftime("%Y-%m-%d %H:%M")
 
 
+ASSET_VERSION = str(int(db.now_ts()))
+
+
 @app.context_processor
 def inject_globals():
-    return {"user": current_user(), "fmt_ts": fmt_ts, "QUESTION_TYPES": grading.QUESTION_TYPES}
+    return {
+        "user": current_user(),
+        "fmt_ts": fmt_ts,
+        "QUESTION_TYPES": grading.QUESTION_TYPES,
+        "asset_v": ASSET_VERSION,
+    }
 
 
 # ---------- auth ----------

@@ -47,5 +47,5 @@
 
 {% block scripts %}
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-<script src="{{ url_for('static', filename='js/live-student.js') }}"></script>
+<script src="{{ url_for('static', filename='js/live-student.js') }}?v={{ asset_v }}"></script>
 {% endblock %}
