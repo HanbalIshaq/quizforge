@@ -1,3 +1,69 @@
+// Auto-save quiz settings — fields tagged data-field inside data-autosave containers.
+(function () {
+  const quizIdMatch = location.pathname.match(/\/admin\/quizzes\/(\d+)/);
+  if (!quizIdMatch) return;
+  const quizId = quizIdMatch[1];
+  const indicator = document.getElementById('settings-save-status');
+  let timer = null;
+  let pending = 0;
+
+  function setStatus(text, color) {
+    if (!indicator) return;
+    indicator.textContent = text;
+    indicator.classList.remove('text-emerald-600', 'text-amber-600', 'text-red-600', 'text-slate-400');
+    indicator.classList.add(color || 'text-slate-400');
+  }
+
+  function saveField(field, value) {
+    pending++;
+    setStatus('Saving…', 'text-amber-600');
+    fetch(`/admin/quizzes/${quizId}/setting`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ field, value }),
+      keepalive: true,
+    }).then(r => r.json()).then(j => {
+      pending--;
+      if (j.ok) {
+        if (pending === 0) {
+          const now = new Date();
+          setStatus('✓ Saved at ' + now.toLocaleTimeString(), 'text-emerald-600');
+        }
+      } else {
+        setStatus('✗ ' + (j.error || 'Save failed'), 'text-red-600');
+      }
+    }).catch(() => {
+      pending--;
+      setStatus('✗ Offline', 'text-red-600');
+    });
+  }
+
+  function readField(el) {
+    if (el.type === 'checkbox') return el.checked;
+    if (el.type === 'number') return el.value === '' ? 0 : parseInt(el.value, 10);
+    return el.value;
+  }
+
+  function handleChange(el) {
+    const field = el.dataset.field;
+    if (!field) return;
+    // Debounce text-typing so we don't hammer the server on every keystroke
+    const isTyping = (el.tagName === 'INPUT' && (el.type === 'text' || el.type === 'number' || el.type === 'password' || el.type === 'email')) || el.tagName === 'TEXTAREA';
+    const delay = (el.type === 'checkbox' || el.tagName === 'SELECT') ? 0 : (isTyping ? 600 : 300);
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => saveField(field, readField(el)), delay);
+  }
+
+  document.querySelectorAll('[data-autosave="1"]').forEach(container => {
+    container.addEventListener('input', e => {
+      if (e.target.dataset && e.target.dataset.field) handleChange(e.target);
+    });
+    container.addEventListener('change', e => {
+      if (e.target.dataset && e.target.dataset.field) handleChange(e.target);
+    });
+  });
+})();
+
 // Inline editor for quiz questions.
 (function () {
   const list = document.getElementById('questions-list');

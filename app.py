@@ -420,6 +420,54 @@ def quiz_update_settings(quiz_id):
         conn.close()
 
 
+_SETTING_TYPES = {
+    "title": "str", "description": "str", "kind": "str", "quiz_password": "str",
+    "time_limit_seconds": "int", "pass_mark": "int", "max_attempts": "int",
+    "violation_limit": "int",
+    "randomize_questions": "bool", "randomize_options": "bool",
+    "show_correct_answers": "bool", "require_name": "bool", "require_email": "bool",
+    "is_published": "bool", "paginated": "bool",
+    "anti_paste": "bool", "anti_rightclick": "bool", "block_selection": "bool",
+    "require_fullscreen": "bool", "detect_tab_switch": "bool",
+}
+
+
+@app.route("/admin/quizzes/<int:quiz_id>/setting", methods=["POST"])
+@login_required
+def quiz_set_setting(quiz_id):
+    """Auto-save a single quiz setting (called by the sidebar JS on every change)."""
+    payload = request.get_json(force=True, silent=True) or {}
+    field = payload.get("field")
+    raw = payload.get("value")
+    t = _SETTING_TYPES.get(field)
+    if not t:
+        return jsonify({"ok": False, "error": "unknown field"}), 400
+    if t == "int":
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            value = 0
+    elif t == "bool":
+        value = 1 if (raw is True or raw == "on" or raw == 1 or raw == "1") else 0
+    else:
+        value = (str(raw or "")).strip()
+        if field == "quiz_password" and not value:
+            value = None
+        elif field == "kind" and value not in ("exam", "poll", "survey"):
+            return jsonify({"ok": False, "error": "invalid kind"}), 400
+    conn = db.get_conn()
+    try:
+        owned_quiz_or_404(conn, quiz_id, session["uid"])
+        conn.execute(
+            f"UPDATE quizzes SET {field}=?, updated_at=? WHERE id=?",
+            (value, db.now_ts(), quiz_id),
+        )
+        conn.commit()
+        return jsonify({"ok": True, "field": field, "value": value})
+    finally:
+        conn.close()
+
+
 @app.route("/admin/quizzes/<int:quiz_id>/delete", methods=["POST"])
 @login_required
 def quiz_delete(quiz_id):
