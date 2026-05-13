@@ -37,6 +37,9 @@
             {% else %}
               <span class="text-xs px-1.5 py-0.5 rounded bg-brand-100 text-brand-700">Async</span>
             {% endif %}
+            {% if a.is_partial %}
+              <span class="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 ml-1">Partial</span>
+            {% endif %}
           </td>
           <td class="px-4 py-2">{{ '%.1f' % (a.score or 0) }} / {{ '%.0f' % (a.max_score or 0) }}</td>
           <td class="px-4 py-2">

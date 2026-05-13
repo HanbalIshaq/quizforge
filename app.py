@@ -1,6 +1,8 @@
 """QuizForge — self-hostable quiz + live-poll platform."""
+import hashlib
 import json
 import os
+import random
 import threading
 from collections import defaultdict
 from datetime import datetime
@@ -591,13 +593,19 @@ def quiz_results(quiz_id):
     conn = db.get_conn()
     try:
         quiz = owned_quiz_or_404(conn, quiz_id, session["uid"])
+        # Include drafts that have at least one answer (real partial attempts), exclude empty drafts
         attempts = [dict(r) for r in conn.execute(
-            "SELECT * FROM attempts WHERE quiz_id=? ORDER BY submitted_at DESC NULLS LAST, started_at DESC",
+            """SELECT a.* FROM attempts a
+               WHERE a.quiz_id=?
+                 AND (a.submitted_at IS NOT NULL
+                      OR EXISTS (SELECT 1 FROM answers WHERE attempt_id=a.id))
+               ORDER BY a.submitted_at DESC NULLS LAST, a.started_at DESC""",
             (quiz_id,),
         ).fetchall()]
         for a in attempts:
             a["started_at_fmt"] = fmt_ts(a["started_at"])
             a["submitted_at_fmt"] = fmt_ts(a["submitted_at"])
+            a["is_partial"] = a["submitted_at"] is None
         questions = [dict(r) for r in conn.execute(
             "SELECT * FROM questions WHERE quiz_id=? ORDER BY position", (quiz_id,)
         ).fetchall()]
@@ -842,6 +850,55 @@ def join():
     return render_template("student/join.html")
 
 
+def _hash_sort(items, seed_prefix: str, key_fn=None):
+    """Deterministic shuffle: sort items by hash(seed_prefix + key). Avoids small-list shuffle collisions."""
+    def sort_key(item):
+        k = str(key_fn(item)) if key_fn else str(item)
+        return hashlib.sha1(f"{seed_prefix}:{k}".encode()).digest()
+    return sorted(items, key=sort_key)
+
+
+def _shuffle_for_attempt(quiz, questions, attempt_id):
+    """Apply randomization deterministically based on attempt_id so refresh shows same order."""
+    seed_prefix = f"qz{quiz['id']}-att{attempt_id}"
+    if quiz["randomize_questions"]:
+        questions = _hash_sort(questions, seed_prefix + "-q", key_fn=lambda q: q["id"])
+    if quiz["randomize_options"]:
+        for q in questions:
+            if q["type"] in ("mcq_single", "mcq_multi", "poll") and q["options"]:
+                pairs = list(enumerate(q["options"]))  # [(orig_idx, opt), ...]
+                pairs = _hash_sort(pairs, seed_prefix + f"-o-{q['id']}", key_fn=lambda p: p[0])
+                q["options_with_idx"] = pairs
+            else:
+                q["options_with_idx"] = list(enumerate(q["options"] or []))
+    else:
+        for q in questions:
+            q["options_with_idx"] = list(enumerate(q["options"] or []))
+    return questions
+
+
+def _get_or_create_draft(conn, quiz):
+    """Get an existing unsubmitted draft attempt for this browser, or create one."""
+    quiz_id = quiz["id"]
+    draft_key = f"draft_{quiz_id}"
+    draft_id = session.get(draft_key)
+    if draft_id:
+        row = conn.execute(
+            "SELECT * FROM attempts WHERE id=? AND quiz_id=? AND submitted_at IS NULL",
+            (draft_id, quiz_id),
+        ).fetchone()
+        if row:
+            return row["id"]
+    cur = conn.execute(
+        """INSERT INTO attempts(quiz_id, student_name, started_at, ip_address)
+           VALUES(?,?,?,?)""",
+        (quiz_id, "", db.now_ts(), request.remote_addr),
+    )
+    conn.commit()
+    session[draft_key] = cur.lastrowid
+    return cur.lastrowid
+
+
 @app.route("/q/<code>", methods=["GET", "POST"])
 def take_quiz(code):
     conn = db.get_conn()
@@ -858,19 +915,17 @@ def take_quiz(code):
         if request.method == "POST":
             is_scored = quiz["kind"] == "exam"
             is_anonymous = quiz["kind"] == "survey"
-            student_name = (request.form.get("student_name") or "").strip()
-            if is_anonymous and not student_name:
-                student_name = "Anonymous"
-            elif not student_name:
-                student_name = "Anonymous"
+            student_name = (request.form.get("student_name") or "").strip() or "Anonymous"
             student_email = (request.form.get("student_email") or "").strip()
             now = db.now_ts()
-            cur = conn.execute(
-                """INSERT INTO attempts(quiz_id, student_name, student_email, started_at, submitted_at, ip_address)
-                   VALUES(?,?,?,?,?,?)""",
-                (quiz["id"], student_name, student_email, now, now, request.remote_addr),
+            # Finalize the existing draft if it exists, otherwise create a fresh attempt
+            attempt_id = _get_or_create_draft(conn, quiz)
+            conn.execute(
+                "UPDATE attempts SET student_name=?, student_email=?, submitted_at=?, ip_address=? WHERE id=?",
+                (student_name, student_email, now, request.remote_addr, attempt_id),
             )
-            attempt_id = cur.lastrowid
+            # Replace answers (the auto-save may have left old data; rebuild from final submission)
+            conn.execute("DELETE FROM answers WHERE attempt_id=?", (attempt_id,))
             total_pts = 0.0
             max_pts = 0.0
             needs_grading = 0
@@ -907,9 +962,95 @@ def take_quiz(code):
                     "UPDATE attempts SET score=0, max_score=0, percentage=0, needs_grading=0 WHERE id=?",
                     (attempt_id,),
                 )
+            # Clear the draft cookie so a NEW attempt starts a new draft
+            session.pop(f"draft_{quiz['id']}", None)
             conn.commit()
             return redirect(url_for("quiz_result", code=code, attempt_id=attempt_id))
-        return render_template("student/quiz.html", quiz=dict(quiz), questions=questions)
+        # GET — create / reuse a draft, load partial answers, randomize for this attempt
+        attempt_id = _get_or_create_draft(conn, dict(quiz))
+        partial_rows = conn.execute(
+            "SELECT question_id, answer FROM answers WHERE attempt_id=?", (attempt_id,)
+        ).fetchall()
+        partial_answers = {}
+        for r in partial_rows:
+            try:
+                partial_answers[r["question_id"]] = json.loads(r["answer"] or "null")
+            except Exception:
+                partial_answers[r["question_id"]] = r["answer"]
+        # Apply randomization (deterministic per attempt_id)
+        questions = _shuffle_for_attempt(dict(quiz), questions, attempt_id)
+        # Pre-fill name/email from existing draft if available
+        draft_row = conn.execute(
+            "SELECT student_name, student_email FROM attempts WHERE id=?", (attempt_id,)
+        ).fetchone()
+        prefill = {"student_name": draft_row["student_name"] or "", "student_email": draft_row["student_email"] or ""}
+        return render_template(
+            "student/quiz.html",
+            quiz=dict(quiz),
+            questions=questions,
+            attempt_id=attempt_id,
+            partial_answers=partial_answers,
+            prefill=prefill,
+        )
+    finally:
+        conn.close()
+
+
+@app.route("/q/<code>/save", methods=["POST"])
+def quiz_save_draft(code):
+    """Auto-save endpoint — accepts partial answers and updates the draft attempt."""
+    payload = request.get_json(force=True, silent=True) or {}
+    conn = db.get_conn()
+    try:
+        quiz = conn.execute("SELECT * FROM quizzes WHERE share_code=?", (code,)).fetchone()
+        if not quiz or not quiz["is_published"]:
+            return jsonify({"ok": False, "error": "not found"}), 404
+        attempt_id = int(payload.get("attempt_id") or 0)
+        # Verify attempt belongs to this quiz and is still a draft
+        a = conn.execute(
+            "SELECT * FROM attempts WHERE id=? AND quiz_id=? AND submitted_at IS NULL",
+            (attempt_id, quiz["id"]),
+        ).fetchone()
+        if not a:
+            # Create a fresh draft on demand
+            attempt_id = _get_or_create_draft(conn, dict(quiz))
+        if "student_name" in payload or "student_email" in payload:
+            conn.execute(
+                "UPDATE attempts SET student_name=COALESCE(?, student_name), student_email=COALESCE(?, student_email) WHERE id=?",
+                (payload.get("student_name"), payload.get("student_email"), attempt_id),
+            )
+        # Upsert answers
+        is_scored = quiz["kind"] == "exam"
+        for qid_str, val in (payload.get("answers") or {}).items():
+            try:
+                qid = int(qid_str)
+            except (TypeError, ValueError):
+                continue
+            q_row = conn.execute(
+                "SELECT * FROM questions WHERE id=? AND quiz_id=?", (qid, quiz["id"])
+            ).fetchone()
+            if not q_row:
+                continue
+            q = dict(q_row)
+            q["options"] = json.loads(q["options"] or "[]")
+            q["correct_answers"] = json.loads(q["correct_answers"] or "[]")
+            if is_scored:
+                is_correct, pts, manual = grading.grade_answer(q, val)
+            else:
+                is_correct, pts, manual = (None, 0.0, False)
+            conn.execute("DELETE FROM answers WHERE attempt_id=? AND question_id=?", (attempt_id, qid))
+            conn.execute(
+                """INSERT INTO answers(attempt_id, question_id, answer, is_correct, points_earned, graded)
+                   VALUES(?,?,?,?,?,?)""",
+                (
+                    attempt_id, qid, json.dumps(val),
+                    None if is_correct is None else (1 if is_correct else 0),
+                    pts,
+                    0 if manual else 1,
+                ),
+            )
+        conn.commit()
+        return jsonify({"ok": True, "attempt_id": attempt_id})
     finally:
         conn.close()
 
