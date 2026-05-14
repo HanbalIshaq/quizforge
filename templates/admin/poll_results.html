@@ -99,7 +99,12 @@
             <div>
               <div class="flex justify-between text-sm mb-1">
                 <span class="text-slate-700">{{ opt }}</span>
-                <span class="text-slate-500 font-mono">{{ n }} &middot; {{ '%.0f' % pct }}%</span>
+                <span class="text-slate-500">
+                  <span class="font-semibold text-slate-700">{{ n }}</span>
+                  <span class="text-xs">vote{{ '' if n == 1 else 's' }}</span>
+                  <span class="text-slate-300 mx-1">·</span>
+                  <span class="font-mono">{{ '%.0f' % pct }}%</span>
+                </span>
               </div>
               <div class="w-full bg-slate-100 h-6 rounded overflow-hidden">
                 <div class="h-6 bg-brand-500 rounded transition-all duration-500"
@@ -141,7 +146,11 @@
                 <div class="flex-1 bg-slate-100 h-4 rounded overflow-hidden">
                   <div class="h-4 bg-amber-400" style="width: {{ pct }}%"></div>
                 </div>
-                <span class="w-20 text-right text-xs text-slate-500 font-mono">{{ count }} ({{ '%.0f' % pct }}%)</span>
+                <span class="w-28 text-right text-xs text-slate-500">
+                  <span class="font-semibold text-slate-700">{{ count }}</span> vote{{ '' if count == 1 else 's' }}
+                  <span class="text-slate-300">·</span>
+                  <span class="font-mono">{{ '%.0f' % pct }}%</span>
+                </span>
               </div>
             {% endfor %}
           </div>
@@ -196,7 +205,11 @@
                 <div class="h-3 {% if n <= 6 %}bg-red-400{% elif n <= 8 %}bg-amber-400{% else %}bg-emerald-500{% endif %}"
                      style="width: {{ p }}%"></div>
               </div>
-              <span class="w-16 text-right font-mono text-slate-500">{{ c }} ({{ '%.0f' % p }}%)</span>
+              <span class="w-24 text-right text-slate-500">
+                <span class="font-semibold text-slate-700">{{ c }}</span> vote{{ '' if c == 1 else 's' }}
+                <span class="text-slate-300">·</span>
+                <span class="font-mono">{{ '%.0f' % p }}%</span>
+              </span>
             </div>
           {% endfor %}
         </div>
