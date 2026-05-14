@@ -700,11 +700,35 @@ def quiz_results(quiz_id):
             (quiz_id,),
         ).fetchall()
         viol_map = {r["attempt_id"]: r["n"] for r in viol_rows}
+        # Per-attempt: how many distinct questions did this respondent answer with a non-empty answer?
+        n_answered_map: dict[int, int] = {}
+        if attempts:
+            ids_placeholders = ",".join(["?"] * len(attempts))
+            for r in conn.execute(
+                f"""SELECT attempt_id, COUNT(DISTINCT question_id) AS n
+                    FROM answers
+                    WHERE attempt_id IN ({ids_placeholders})
+                      AND answer IS NOT NULL
+                      AND answer <> 'null'
+                      AND answer <> ''
+                      AND answer <> '""'
+                      AND answer <> '[]'
+                    GROUP BY attempt_id""",
+                tuple(a["id"] for a in attempts),
+            ).fetchall():
+                n_answered_map[r["attempt_id"]] = r["n"]
         for a in attempts:
             a["started_at_fmt"] = fmt_ts(a["started_at"])
             a["submitted_at_fmt"] = fmt_ts(a["submitted_at"])
             a["is_partial"] = a["submitted_at"] is None
             a["violation_count"] = viol_map.get(a["id"], 0)
+            a["n_answered"] = n_answered_map.get(a["id"], 0)
+        # For drill-down on poll results: who picked each option
+        is_anonymous = quiz["kind"] == "survey"
+        name_by_attempt = {
+            a["id"]: ("Anonymous" if is_anonymous else (a.get("student_name") or "Anonymous"))
+            for a in attempts
+        }
         questions = [dict(r) for r in conn.execute(
             "SELECT * FROM questions WHERE quiz_id=? ORDER BY position", (quiz_id,)
         ).fetchall()]
@@ -720,7 +744,7 @@ def quiz_results(quiz_id):
             if visible_ids:
                 placeholders = ",".join(["?"] * len(visible_ids))
                 ans_rows = conn.execute(
-                    f"""SELECT answer, is_correct FROM answers
+                    f"""SELECT attempt_id, answer, is_correct FROM answers
                         WHERE id IN (
                             SELECT MAX(id) FROM answers
                             WHERE question_id=? AND attempt_id IN ({placeholders})
@@ -731,9 +755,11 @@ def quiz_results(quiz_id):
             else:
                 ans_rows = []
             counts = defaultdict(int)
+            names_per_choice: dict = defaultdict(list)
             correct = 0
             total = 0
-            text_answers = []
+            text_answers = []                # legacy: just list of strings (for word cloud freq)
+            text_answers_with_names = []     # new: list of (name, text)
             for r in ans_rows:
                 try:
                     val = json.loads(r["answer"] or "null")
@@ -743,25 +769,36 @@ def quiz_results(quiz_id):
                     correct += 1
                 if val is not None:
                     total += 1
-                if q["type"] in ("mcq_single", "true_false"):
+                respondent = name_by_attempt.get(r["attempt_id"], "Anonymous")
+                if q["type"] in ("mcq_single", "true_false", "poll"):
                     if isinstance(val, int):
                         counts[val] += 1
+                        names_per_choice[val].append(respondent)
                 elif q["type"] == "mcq_multi":
                     if isinstance(val, list):
                         for v in val:
-                            counts[v] += 1
+                            try:
+                                vi = int(v)
+                            except (TypeError, ValueError):
+                                continue
+                            counts[vi] += 1
+                            names_per_choice[vi].append(respondent)
                 elif q["type"] in ("rating", "nps"):
                     if isinstance(val, (int, float)):
                         counts[int(val)] += 1
+                        names_per_choice[int(val)].append(respondent)
                 elif q["type"] in ("short_answer", "fill_blank", "long_answer", "open_ended", "word_cloud"):
                     if isinstance(val, str) and val.strip():
                         text_answers.append(val)
+                        text_answers_with_names.append((respondent, val))
             stats.append({
                 "q": q,
                 "counts": dict(counts),
+                "names": {k: v for k, v in names_per_choice.items()},
                 "correct": correct,
                 "total": total,
                 "text_answers": text_answers,
+                "text_answers_with_names": text_answers_with_names,
             })
         if quiz["kind"] in ("poll", "survey"):
             return render_template(
@@ -786,10 +823,22 @@ def _gather_results_for_export(quiz_id):
         for a in attempts:
             a["started_at_fmt"] = fmt_ts(a["started_at"])
             a["submitted_at_fmt"] = fmt_ts(a["submitted_at"])
+            # Keep only the latest answer per (attempt, question) to defend against legacy duplicates
             rows = conn.execute(
-                "SELECT * FROM answers WHERE attempt_id=?", (a["id"],)
+                """SELECT * FROM answers
+                   WHERE attempt_id=? AND id IN (
+                       SELECT MAX(id) FROM answers WHERE attempt_id=? GROUP BY question_id
+                   )""",
+                (a["id"], a["id"]),
             ).fetchall()
             a["answers_by_qid"] = {r["question_id"]: dict(r) for r in rows}
+            # Count only non-empty answers
+            def _nonempty(ans):
+                if not ans:
+                    return False
+                s = (ans or "").strip()
+                return s not in ("", "null", '""', "[]")
+            a["n_answered"] = sum(1 for r in rows if _nonempty(r["answer"]))
         return questions, attempts
     finally:
         conn.close()

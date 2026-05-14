@@ -8,7 +8,8 @@ from openpyxl.styles import Font, PatternFill, Alignment
 def attempts_to_csv(attempts: list[dict], questions: list[dict]) -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
-    header = ["Name", "Email", "Score", "Max", "Percentage", "Started", "Submitted"]
+    n_q = len(questions)
+    header = ["Name", "Email", "Score", "Max", "Percentage", "Answered", f"of {n_q}", "Started", "Submitted"]
     for q in questions:
         header.append(f"Q{q['position']+1}: {q['text'][:60]}")
     w.writerow(header)
@@ -19,6 +20,8 @@ def attempts_to_csv(attempts: list[dict], questions: list[dict]) -> str:
             a.get("score", 0),
             a.get("max_score", 0),
             f"{a.get('percentage', 0):.1f}%",
+            a.get("n_answered", 0),
+            n_q,
             a.get("started_at_fmt", ""),
             a.get("submitted_at_fmt", ""),
         ]
@@ -34,8 +37,9 @@ def attempts_to_xlsx(attempts: list[dict], questions: list[dict], quiz_title: st
     wb = Workbook()
     ws = wb.active
     ws.title = "Results"
+    n_q = len(questions)
 
-    header = ["Name", "Email", "Score", "Max", "Percentage", "Started", "Submitted"]
+    header = ["Name", "Email", "Score", "Max", "Percentage", "Answered", f"of {n_q}", "Started", "Submitted"]
     for q in questions:
         header.append(f"Q{q['position']+1}: {q['text'][:60]}")
     ws.append(header)
@@ -54,6 +58,8 @@ def attempts_to_xlsx(attempts: list[dict], questions: list[dict], quiz_title: st
             a.get("score", 0),
             a.get("max_score", 0),
             a.get("percentage", 0),
+            a.get("n_answered", 0),
+            n_q,
             a.get("started_at_fmt", ""),
             a.get("submitted_at_fmt", ""),
         ]
