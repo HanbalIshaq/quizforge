@@ -708,14 +708,21 @@ def quiz_results(quiz_id):
         questions = [dict(r) for r in conn.execute(
             "SELECT * FROM questions WHERE quiz_id=? ORDER BY position", (quiz_id,)
         ).fetchall()]
-        # Per-question stats
+        # Per-question stats — only count answers from the SAME deduped set of attempts
+        # shown in the table above, so the top totals and the per-question totals reconcile.
+        visible_ids = [a["id"] for a in attempts]
         stats = []
         for q in questions:
             q["options"] = json.loads(q["options"] or "[]")
             q["correct_answers"] = json.loads(q["correct_answers"] or "[]")
-            ans_rows = conn.execute(
-                "SELECT answer, is_correct FROM answers WHERE question_id=?", (q["id"],)
-            ).fetchall()
+            if visible_ids:
+                placeholders = ",".join(["?"] * len(visible_ids))
+                ans_rows = conn.execute(
+                    f"SELECT answer, is_correct FROM answers WHERE question_id=? AND attempt_id IN ({placeholders})",
+                    (q["id"], *visible_ids),
+                ).fetchall()
+            else:
+                ans_rows = []
             counts = defaultdict(int)
             correct = 0
             total = 0
