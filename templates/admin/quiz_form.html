@@ -42,31 +42,40 @@
         <option value="poll" {% if quiz.kind=='poll' %}selected{% endif %}>Live Poll</option>
         <option value="survey" {% if quiz.kind=='survey' %}selected{% endif %}>Survey</option>
       </select>
-      <label class="block text-xs text-slate-600">
-        Whole-exam time limit (seconds, 0 = none)
-        <span class="block text-slate-400">Applies to the entire quiz. Set per-question times in the question editor on the right.</span>
-        <input type="number" data-field="time_limit_seconds" value="{{ quiz.time_limit_seconds or 0 }}" min="0"
-               class="w-full mt-1 px-3 py-2 border rounded text-sm" />
-      </label>
-      <label class="block text-xs text-slate-600">Pass mark %
-        <input type="number" data-field="pass_mark" value="{{ quiz.pass_mark or 0 }}" min="0" max="100"
-               class="w-full mt-1 px-3 py-2 border rounded text-sm" />
-      </label>
-      <label class="block text-xs text-slate-600">Max attempts (0 = unlimited)
-        <input type="number" data-field="max_attempts" value="{{ quiz.max_attempts or 0 }}" min="0"
-               class="w-full mt-1 px-3 py-2 border rounded text-sm" />
-      </label>
+      {% if quiz.kind == 'exam' %}
+        <label class="block text-xs text-slate-600">
+          Whole-exam time limit (seconds, 0 = none)
+          <span class="block text-slate-400">Applies to the entire quiz. Set per-question times in the question editor on the right.</span>
+          <input type="number" data-field="time_limit_seconds" value="{{ quiz.time_limit_seconds or 0 }}" min="0"
+                 class="w-full mt-1 px-3 py-2 border rounded text-sm" />
+        </label>
+        <label class="block text-xs text-slate-600">Pass mark %
+          <input type="number" data-field="pass_mark" value="{{ quiz.pass_mark or 0 }}" min="0" max="100"
+                 class="w-full mt-1 px-3 py-2 border rounded text-sm" />
+        </label>
+        <label class="block text-xs text-slate-600">Max attempts (0 = unlimited)
+          <input type="number" data-field="max_attempts" value="{{ quiz.max_attempts or 0 }}" min="0"
+                 class="w-full mt-1 px-3 py-2 border rounded text-sm" />
+        </label>
+      {% endif %}
       <div class="space-y-1.5 text-sm">
-        <label class="flex items-center gap-2"><input type="checkbox" data-field="paginated" {% if quiz.paginated %}checked{% endif %}> One question per page (auto-advance on per-question timer)</label>
-        <label class="flex items-center gap-2"><input type="checkbox" data-field="randomize_questions" {% if quiz.randomize_questions %}checked{% endif %}> Randomize questions</label>
-        <label class="flex items-center gap-2"><input type="checkbox" data-field="randomize_options" {% if quiz.randomize_options %}checked{% endif %}> Randomize options</label>
-        <label class="flex items-center gap-2"><input type="checkbox" data-field="show_correct_answers" {% if quiz.show_correct_answers %}checked{% endif %}> Show correct answers after submit</label>
-        <label class="flex items-center gap-2"><input type="checkbox" data-field="require_name" {% if quiz.require_name %}checked{% endif %}> Require name</label>
-        <label class="flex items-center gap-2"><input type="checkbox" data-field="require_email" {% if quiz.require_email %}checked{% endif %}> Require email</label>
+        {% if quiz.kind == 'exam' %}
+          <label class="flex items-center gap-2"><input type="checkbox" data-field="paginated" {% if quiz.paginated %}checked{% endif %}> One question per page (auto-advance on per-question timer)</label>
+          <label class="flex items-center gap-2"><input type="checkbox" data-field="randomize_questions" {% if quiz.randomize_questions %}checked{% endif %}> Randomize questions</label>
+          <label class="flex items-center gap-2"><input type="checkbox" data-field="randomize_options" {% if quiz.randomize_options %}checked{% endif %}> Randomize options</label>
+          <label class="flex items-center gap-2"><input type="checkbox" data-field="show_correct_answers" {% if quiz.show_correct_answers %}checked{% endif %}> Show correct answers after submit</label>
+        {% endif %}
+        {% if quiz.kind != 'survey' %}
+          <label class="flex items-center gap-2"><input type="checkbox" data-field="require_name" {% if quiz.require_name %}checked{% endif %}> Require name</label>
+          <label class="flex items-center gap-2"><input type="checkbox" data-field="require_email" {% if quiz.require_email %}checked{% endif %}> Require email</label>
+        {% else %}
+          <p class="text-xs text-emerald-700 italic">Surveys are anonymous — name & email are not collected.</p>
+        {% endif %}
         <label class="flex items-center gap-2"><input type="checkbox" data-field="is_published" {% if quiz.is_published %}checked{% endif %}> Published</label>
       </div>
     </div>
 
+    {% if quiz.kind == 'exam' %}
     <details class="bg-white border border-slate-200 rounded-lg p-4">
       <summary class="font-semibold cursor-pointer">🛡 Anti-cheating (per quiz)</summary>
       <div data-autosave="1" class="mt-3 space-y-3 text-sm">
@@ -95,7 +104,9 @@
         Coming next: IP allow-list, webcam snapshots, face & object detection.
       </p>
     </details>
+    {% endif %}
 
+    {% if quiz.kind == 'exam' %}
     <details class="bg-white border border-slate-200 rounded-lg p-4" open>
       <summary class="font-semibold cursor-pointer">Per-question time (bulk apply)</summary>
       <form method="post" action="{{ url_for('quiz_apply_time', quiz_id=quiz.id) }}"
@@ -118,6 +129,7 @@
         </button>
       </form>
     </details>
+    {% endif %}
 
     <details class="bg-white border border-slate-200 rounded-lg p-4">
       <summary class="font-semibold cursor-pointer">Bulk import</summary>

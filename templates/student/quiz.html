@@ -169,6 +169,22 @@
                 </label>
               {% endfor %}
             </div>
+          {% elif q.type == 'nps' %}
+            <div>
+              <div class="flex gap-1 text-sm">
+                {% for n in range(0, 11) %}
+                  <label class="flex-1 flex items-center justify-center py-3 border rounded hover:bg-slate-50 cursor-pointer
+                    {% if n <= 6 %}hover:bg-red-50{% elif n <= 8 %}hover:bg-amber-50{% else %}hover:bg-emerald-50{% endif %}">
+                    <input type="radio" name="q_{{ q.id }}" value="{{ n }}" class="sr-only peer"
+                           {% if saved == n %}checked{% endif %} />
+                    <span class="font-semibold peer-checked:text-brand-700">{{ n }}</span>
+                  </label>
+                {% endfor %}
+              </div>
+              <div class="flex justify-between text-xs text-slate-500 mt-1 px-1">
+                <span>Not at all likely</span><span>Extremely likely</span>
+              </div>
+            </div>
           {% endif %}
 
           {% if paginated %}

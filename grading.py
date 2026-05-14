@@ -70,12 +70,13 @@ _MANUAL_TYPES = {"long_answer"}
 QUESTION_TYPES = [
     ("mcq_single", "Multiple Choice (single answer)"),
     ("mcq_multi", "Multiple Choice (multiple answers)"),
-    ("true_false", "True / False"),
+    ("true_false", "True / False (or Yes / No)"),
     ("short_answer", "Short Answer"),
     ("long_answer", "Long Answer / Essay"),
     ("fill_blank", "Fill in the Blank"),
-    ("rating", "Rating (1–5)"),
-    ("poll", "Poll (no correct answer)"),
+    ("rating", "Rating (1–5 stars)"),
+    ("nps", "NPS — Net Promoter Score (0–10)"),
+    ("poll", "Poll choice (no correct answer)"),
     ("open_ended", "Open-ended (free text, ungraded)"),
     ("word_cloud", "Word Cloud (live)"),
 ]

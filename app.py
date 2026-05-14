@@ -303,15 +303,25 @@ def site_user_action(user_id, action):
 @app.route("/admin")
 @login_required
 def admin_dashboard():
+    kind_filter = (request.args.get("kind") or "all").strip().lower()
     conn = db.get_conn()
     try:
-        rows = conn.execute(
-            """SELECT q.*,
-                      (SELECT COUNT(*) FROM questions WHERE quiz_id=q.id) AS n_q,
-                      (SELECT COUNT(*) FROM attempts WHERE quiz_id=q.id AND submitted_at IS NOT NULL) AS n_a
-               FROM quizzes q WHERE user_id=? ORDER BY q.updated_at DESC""",
-            (session["uid"],),
-        ).fetchall()
+        if kind_filter in ("exam", "poll", "survey"):
+            rows = conn.execute(
+                """SELECT q.*,
+                          (SELECT COUNT(*) FROM questions WHERE quiz_id=q.id) AS n_q,
+                          (SELECT COUNT(*) FROM attempts WHERE quiz_id=q.id AND submitted_at IS NOT NULL) AS n_a
+                   FROM quizzes q WHERE user_id=? AND kind=? ORDER BY q.updated_at DESC""",
+                (session["uid"], kind_filter),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT q.*,
+                          (SELECT COUNT(*) FROM questions WHERE quiz_id=q.id) AS n_q,
+                          (SELECT COUNT(*) FROM attempts WHERE quiz_id=q.id AND submitted_at IS NOT NULL) AS n_a
+                   FROM quizzes q WHERE user_id=? ORDER BY q.updated_at DESC""",
+                (session["uid"],),
+            ).fetchall()
         quizzes = [dict(r) for r in rows]
         return render_template("admin/dashboard.html", quizzes=quizzes)
     finally:
@@ -726,7 +736,7 @@ def quiz_results(quiz_id):
                     if isinstance(val, list):
                         for v in val:
                             counts[v] += 1
-                elif q["type"] == "rating":
+                elif q["type"] in ("rating", "nps"):
                     if isinstance(val, (int, float)):
                         counts[int(val)] += 1
                 elif q["type"] in ("short_answer", "fill_blank", "long_answer", "open_ended", "word_cloud"):
@@ -739,6 +749,11 @@ def quiz_results(quiz_id):
                 "total": total,
                 "text_answers": text_answers,
             })
+        if quiz["kind"] in ("poll", "survey"):
+            return render_template(
+                "admin/poll_results.html",
+                quiz=dict(quiz), attempts=attempts, stats=stats,
+            )
         return render_template("admin/quiz_results.html", quiz=dict(quiz), attempts=attempts, stats=stats)
     finally:
         conn.close()
@@ -1215,7 +1230,7 @@ def _parse_submitted(qtype: str, raw: list[str]):
             return None
     if qtype == "mcq_multi":
         return [int(x) for x in raw if x.strip().isdigit()]
-    if qtype == "rating":
+    if qtype in ("rating", "nps"):
         try:
             return int(raw[0])
         except Exception:

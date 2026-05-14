@@ -1,18 +1,37 @@
 {% extends "base.html" %}
 {% block title %}Dashboard &middot; QuizForge{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <h1 class="text-2xl font-bold">Your quizzes</h1>
-  <form method="post" action="{{ url_for('quiz_new') }}" class="flex items-center gap-2">
-    <select name="kind" class="px-2 py-2 border border-slate-300 rounded text-sm">
-      <option value="exam">Exam / Quiz</option>
-      <option value="poll">Live Poll</option>
-      <option value="survey">Survey</option>
-    </select>
-    <input name="title" placeholder="New quiz title" required
-           class="px-3 py-2 border border-slate-300 rounded text-sm" />
-    <button class="px-4 py-2 bg-brand-600 text-white rounded hover:bg-brand-700 text-sm">+ Create</button>
-  </form>
+{% set q_filter = request.args.get('kind', 'all') %}
+<div class="flex items-start justify-between mb-4 flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold">Your content</h1>
+    <div class="flex gap-1.5 mt-2 text-sm">
+      <a href="?kind=all"     class="px-3 py-1 rounded-full {% if q_filter == 'all'    %}bg-slate-900 text-white{% else %}bg-slate-100 hover:bg-slate-200{% endif %}">All</a>
+      <a href="?kind=exam"    class="px-3 py-1 rounded-full {% if q_filter == 'exam'   %}bg-brand-700 text-white{% else %}bg-brand-50 text-brand-700 hover:bg-brand-100{% endif %}">Exams / Quizzes</a>
+      <a href="?kind=poll"    class="px-3 py-1 rounded-full {% if q_filter == 'poll'   %}bg-amber-700 text-white{% else %}bg-amber-50 text-amber-700 hover:bg-amber-100{% endif %}">Polls</a>
+      <a href="?kind=survey"  class="px-3 py-1 rounded-full {% if q_filter == 'survey' %}bg-emerald-700 text-white{% else %}bg-emerald-50 text-emerald-700 hover:bg-emerald-100{% endif %}">Surveys</a>
+    </div>
+  </div>
+  <div class="flex flex-wrap gap-2">
+    <form method="post" action="{{ url_for('quiz_new') }}" class="inline-flex items-center gap-2">
+      <input type="hidden" name="kind" value="exam" />
+      <input name="title" placeholder="New quiz title" required
+             class="px-3 py-2 border border-slate-300 rounded text-sm w-44" />
+      <button class="px-3 py-2 bg-brand-600 text-white rounded hover:bg-brand-700 text-sm">+ Create Quiz / Exam</button>
+    </form>
+    <form method="post" action="{{ url_for('quiz_new') }}" class="inline-flex items-center gap-2">
+      <input type="hidden" name="kind" value="poll" />
+      <input name="title" placeholder="New poll title" required
+             class="px-3 py-2 border border-slate-300 rounded text-sm w-40" />
+      <button class="px-3 py-2 bg-amber-600 text-white rounded hover:bg-amber-700 text-sm">+ Create Poll</button>
+    </form>
+    <form method="post" action="{{ url_for('quiz_new') }}" class="inline-flex items-center gap-2">
+      <input type="hidden" name="kind" value="survey" />
+      <input name="title" placeholder="New survey title" required
+             class="px-3 py-2 border border-slate-300 rounded text-sm w-40" />
+      <button class="px-3 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 text-sm">+ Create Survey</button>
+    </form>
+  </div>
 </div>
 
 {% if quizzes %}
@@ -36,7 +55,15 @@
               <a href="{{ url_for('quiz_edit', quiz_id=q.id) }}" class="text-brand-700 hover:underline">{{ q.title }}</a>
               {% if not q.is_published %}<span class="ml-2 text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-700">Draft</span>{% endif %}
             </td>
-            <td class="px-4 py-2 capitalize">{{ q.kind }}</td>
+            <td class="px-4 py-2">
+              {% if q.kind == 'poll' %}
+                <span class="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">Poll</span>
+              {% elif q.kind == 'survey' %}
+                <span class="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">Survey</span>
+              {% else %}
+                <span class="text-xs px-1.5 py-0.5 rounded bg-brand-100 text-brand-700">Exam</span>
+              {% endif %}
+            </td>
             <td class="px-4 py-2">{{ q.n_q }}</td>
             <td class="px-4 py-2">{{ q.n_a }}</td>
             <td class="px-4 py-2 font-mono">{{ q.share_code }}</td>

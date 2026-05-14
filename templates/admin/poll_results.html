@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% block title %}{{ quiz.title }} &middot; Live results{% endblock %}
+{% block content %}
+{% set total_responses = attempts | selectattr('submitted_at') | list | length %}
+{% set partial_responses = attempts | rejectattr('submitted_at') | list | length %}
+
+<div class="flex items-start justify-between mb-6 gap-4 flex-wrap">
+  <div>
+    <a href="{{ url_for('quiz_edit', quiz_id=quiz.id) }}" class="text-sm text-slate-500 hover:text-brand-700">&larr; Edit</a>
+    <h1 class="text-3xl font-bold mt-1 flex items-center gap-2">
+      {{ quiz.title }}
+      {% if quiz.kind == 'survey' %}
+        <span class="text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-800">Survey</span>
+      {% else %}
+        <span class="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800">Poll</span>
+      {% endif %}
+    </h1>
+    <p class="text-sm text-slate-500 mt-1">
+      Real-time aggregated responses
+      {% if quiz.kind == 'survey' %} &middot; answers are anonymous{% endif %}
+    </p>
+  </div>
+  <div class="flex flex-wrap items-center gap-2">
+    <button id="copy-link-btn"
+            data-link="{{ url_for('take_quiz', code=quiz.share_code, _external=True) }}"
+            class="px-3 py-2 bg-white border border-slate-300 rounded text-sm hover:bg-slate-100">📋 Copy link</button>
+    <a href="{{ url_for('export_csv', quiz_id=quiz.id) }}" class="px-3 py-2 bg-white border border-slate-300 rounded text-sm hover:bg-slate-100">Raw CSV</a>
+    <a href="{{ url_for('export_xlsx', quiz_id=quiz.id) }}" class="px-3 py-2 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">Excel</a>
+    <button id="refresh-btn" class="px-3 py-2 bg-brand-600 text-white rounded text-sm hover:bg-brand-700">↻ Refresh</button>
+  </div>
+</div>
+
+{# Top stat strip #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  <div class="bg-white border border-slate-200 rounded-lg p-4">
+    <p class="text-xs text-slate-500 uppercase tracking-wide">Total responses</p>
+    <p class="text-3xl font-bold text-brand-700 mt-1">{{ total_responses }}</p>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-lg p-4">
+    <p class="text-xs text-slate-500 uppercase tracking-wide">In progress</p>
+    <p class="text-3xl font-bold text-amber-600 mt-1">{{ partial_responses }}</p>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-lg p-4">
+    <p class="text-xs text-slate-500 uppercase tracking-wide">Questions</p>
+    <p class="text-3xl font-bold text-slate-700 mt-1">{{ stats|length }}</p>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-lg p-4">
+    <p class="text-xs text-slate-500 uppercase tracking-wide">Share link</p>
+    <p class="text-xs font-mono text-slate-700 mt-2 break-all">
+      <a class="text-brand-700 hover:underline" href="{{ url_for('take_quiz', code=quiz.share_code, _external=True) }}">{{ url_for('take_quiz', code=quiz.share_code, _external=True) }}</a>
+    </p>
+  </div>
+</div>
+
+{% if total_responses == 0 and partial_responses == 0 %}
+  <div class="bg-white border border-dashed border-slate-300 rounded-lg p-10 text-center text-slate-500">
+    <p class="text-lg mb-2">📊 No responses yet</p>
+    <p class="text-sm">Share the link above — results will appear here as people respond.</p>
+  </div>
+{% endif %}
+
+<div class="space-y-5">
+  {% for s in stats %}
+    {% set q = s.q %}
+    <div class="bg-white border border-slate-200 rounded-lg p-5">
+      <div class="flex items-start justify-between gap-4 mb-3">
+        <div>
+          <p class="text-xs text-slate-500 uppercase tracking-wide">Question {{ loop.index }} &middot;
+            <span class="text-slate-600">
+              {% if q.type == 'mcq_single' %}Single choice
+              {% elif q.type == 'mcq_multi' %}Multiple choice
+              {% elif q.type == 'true_false' %}Yes / No
+              {% elif q.type == 'rating' %}Rating (1–5)
+              {% elif q.type == 'nps' %}NPS (0–10)
+              {% elif q.type == 'word_cloud' %}Word cloud
+              {% elif q.type == 'open_ended' %}Open text
+              {% else %}{{ q.type.replace('_', ' ').title() }}
+              {% endif %}
+            </span>
+          </p>
+          <p class="font-semibold text-lg mt-1">{{ q.text }}</p>
+        </div>
+        <p class="text-xs text-slate-500 whitespace-nowrap">{{ s.total }} response{{ '' if s.total == 1 else 's' }}</p>
+      </div>
+
+      {# --- Visualizations by question type --- #}
+
+      {% if q.type in ('mcq_single', 'mcq_multi', 'true_false', 'poll') and q.options %}
+        {# Horizontal bar chart, ranked by popularity #}
+        {% set ranked = [] %}
+        {% for opt in q.options %}
+          {% set n = s.counts.get(loop.index0, 0) %}
+          {% set _ = ranked.append((loop.index0, opt, n)) %}
+        {% endfor %}
+        {% set ranked_sorted = ranked|sort(attribute='2', reverse=true) %}
+        <div class="space-y-2">
+          {% for idx, opt, n in ranked_sorted %}
+            {% set pct = (n / s.total * 100) if s.total else 0 %}
+            <div>
+              <div class="flex justify-between text-sm mb-1">
+                <span class="text-slate-700">{{ opt }}</span>
+                <span class="text-slate-500 font-mono">{{ n }} &middot; {{ '%.0f' % pct }}%</span>
+              </div>
+              <div class="w-full bg-slate-100 h-6 rounded overflow-hidden">
+                <div class="h-6 bg-brand-500 rounded transition-all duration-500"
+                     style="width: {{ pct }}%"></div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+
+      {% elif q.type == 'rating' %}
+        {# Star-rating distribution + average #}
+        {% set rating_total = 0 %}
+        {% set rating_sum = 0 %}
+        {% for n in range(1, 6) %}
+          {% set count = s.counts.get(n, 0) %}
+          {% set _ = rating_total.__add__(count) if false else None %}
+        {% endfor %}
+        {% set ns = namespace(count=0, sum=0) %}
+        {% for n in range(1, 6) %}
+          {% set ns.count = ns.count + s.counts.get(n, 0) %}
+          {% set ns.sum = ns.sum + (n * s.counts.get(n, 0)) %}
+        {% endfor %}
+        {% set avg = (ns.sum / ns.count) if ns.count else 0 %}
+        <div class="grid md:grid-cols-3 gap-4 items-start">
+          <div class="md:col-span-1 text-center bg-amber-50 border border-amber-200 rounded p-4">
+            <p class="text-xs text-amber-700 uppercase tracking-wide">Average</p>
+            <p class="text-5xl font-bold text-amber-700 mt-1">{{ '%.1f' % avg }}</p>
+            <p class="text-amber-700 mt-1">
+              {% for n in range(1, 6) %}{% if n <= avg|round(0, 'common') %}★{% else %}☆{% endif %}{% endfor %}
+            </p>
+            <p class="text-xs text-amber-700 mt-1">{{ ns.count }} rating{{ '' if ns.count == 1 else 's' }}</p>
+          </div>
+          <div class="md:col-span-2 space-y-1.5">
+            {% for n in range(5, 0, -1) %}
+              {% set count = s.counts.get(n, 0) %}
+              {% set pct = (count / ns.count * 100) if ns.count else 0 %}
+              <div class="flex items-center gap-2 text-sm">
+                <span class="w-8 text-amber-600">{{ n }} ★</span>
+                <div class="flex-1 bg-slate-100 h-4 rounded overflow-hidden">
+                  <div class="h-4 bg-amber-400" style="width: {{ pct }}%"></div>
+                </div>
+                <span class="w-20 text-right text-xs text-slate-500 font-mono">{{ count }} ({{ '%.0f' % pct }}%)</span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+
+      {% elif q.type == 'nps' %}
+        {# NPS score: detractors 0-6, passives 7-8, promoters 9-10 #}
+        {% set ns = namespace(detractors=0, passives=0, promoters=0, total=0, sum=0) %}
+        {% for n in range(0, 11) %}
+          {% set count = s.counts.get(n, 0) %}
+          {% set ns.total = ns.total + count %}
+          {% set ns.sum = ns.sum + (n * count) %}
+          {% if n <= 6 %}{% set ns.detractors = ns.detractors + count %}
+          {% elif n <= 8 %}{% set ns.passives = ns.passives + count %}
+          {% else %}{% set ns.promoters = ns.promoters + count %}{% endif %}
+        {% endfor %}
+        {% set pct_prom = (ns.promoters / ns.total * 100) if ns.total else 0 %}
+        {% set pct_pass = (ns.passives / ns.total * 100) if ns.total else 0 %}
+        {% set pct_det  = (ns.detractors / ns.total * 100) if ns.total else 0 %}
+        {% set nps_score = (pct_prom - pct_det)|round %}
+        <div class="grid md:grid-cols-4 gap-3 mb-4">
+          <div class="text-center {% if nps_score >= 50 %}bg-emerald-50 border-emerald-200{% elif nps_score >= 0 %}bg-amber-50 border-amber-200{% else %}bg-red-50 border-red-200{% endif %} border rounded p-3">
+            <p class="text-xs uppercase tracking-wide">NPS Score</p>
+            <p class="text-4xl font-bold mt-1
+              {% if nps_score >= 50 %}text-emerald-700{% elif nps_score >= 0 %}text-amber-700{% else %}text-red-700{% endif %}">
+              {{ nps_score }}</p>
+          </div>
+          <div class="text-center bg-red-50 border border-red-200 rounded p-3">
+            <p class="text-xs text-red-700 uppercase tracking-wide">Detractors (0–6)</p>
+            <p class="text-2xl font-bold text-red-700 mt-1">{{ ns.detractors }}</p>
+            <p class="text-xs text-red-700 mt-1">{{ '%.0f' % pct_det }}%</p>
+          </div>
+          <div class="text-center bg-amber-50 border border-amber-200 rounded p-3">
+            <p class="text-xs text-amber-700 uppercase tracking-wide">Passives (7–8)</p>
+            <p class="text-2xl font-bold text-amber-700 mt-1">{{ ns.passives }}</p>
+            <p class="text-xs text-amber-700 mt-1">{{ '%.0f' % pct_pass }}%</p>
+          </div>
+          <div class="text-center bg-emerald-50 border border-emerald-200 rounded p-3">
+            <p class="text-xs text-emerald-700 uppercase tracking-wide">Promoters (9–10)</p>
+            <p class="text-2xl font-bold text-emerald-700 mt-1">{{ ns.promoters }}</p>
+            <p class="text-xs text-emerald-700 mt-1">{{ '%.0f' % pct_prom }}%</p>
+          </div>
+        </div>
+        <div class="space-y-1">
+          {% for n in range(10, -1, -1) %}
+            {% set c = s.counts.get(n, 0) %}
+            {% set p = (c / ns.total * 100) if ns.total else 0 %}
+            <div class="flex items-center gap-2 text-xs">
+              <span class="w-8 text-right font-mono
+                {% if n <= 6 %}text-red-600{% elif n <= 8 %}text-amber-600{% else %}text-emerald-600{% endif %}">{{ n }}</span>
+              <div class="flex-1 bg-slate-100 h-3 rounded overflow-hidden">
+                <div class="h-3 {% if n <= 6 %}bg-red-400{% elif n <= 8 %}bg-amber-400{% else %}bg-emerald-500{% endif %}"
+                     style="width: {{ p }}%"></div>
+              </div>
+              <span class="w-16 text-right font-mono text-slate-500">{{ c }} ({{ '%.0f' % p }}%)</span>
+            </div>
+          {% endfor %}
+        </div>
+
+      {% elif q.type == 'word_cloud' or q.type == 'open_ended' or q.type == 'short_answer' or q.type == 'long_answer' %}
+        {# Tag-cloud-ish list of text responses with frequency #}
+        {% if s.text_answers %}
+          {# Build frequency map server-side via a namespace trick #}
+          {% set freq = namespace(items={}) %}
+          {% for t in s.text_answers %}
+            {% set norm = t.strip().lower() %}
+            {% set _ = freq.items.update({norm: freq.items.get(norm, 0) + 1}) %}
+          {% endfor %}
+          {% set max_freq = freq.items.values()|max if freq.items else 1 %}
+          <div class="flex flex-wrap gap-2 mb-3">
+            {% for word, n in (freq.items.items()|sort(attribute='1', reverse=true))[:60] %}
+              {% set size = 10 + ((n / max_freq) * 18) %}
+              <span class="inline-block px-2.5 py-1 rounded-full bg-brand-50 border border-brand-200 text-brand-800"
+                    style="font-size: {{ size|round(1) }}px;">{{ word }} <span class="text-brand-500 text-xs">×{{ n }}</span></span>
+            {% endfor %}
+          </div>
+          <details class="text-sm">
+            <summary class="cursor-pointer text-slate-500 hover:text-slate-700">Show {{ s.text_answers|length }} raw response(s)</summary>
+            <ul class="mt-2 space-y-1 text-slate-700 max-h-72 overflow-auto border-t pt-2">
+              {% for t in s.text_answers %}
+                <li class="py-1 border-b border-slate-100">{{ t }}</li>
+              {% endfor %}
+            </ul>
+          </details>
+        {% else %}
+          <p class="text-sm text-slate-400">No text responses yet.</p>
+        {% endif %}
+
+      {% else %}
+        <p class="text-sm text-slate-400">No responses yet.</p>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>
+
+{# Optional individual responses (only if not a survey) #}
+{% if quiz.kind != 'survey' and attempts %}
+  <details class="mt-8 bg-white border border-slate-200 rounded-lg p-4">
+    <summary class="font-semibold cursor-pointer">Individual respondents ({{ attempts|length }})</summary>
+    <table class="w-full text-sm mt-3">
+      <thead class="bg-slate-50 text-left text-slate-600">
+        <tr>
+          <th class="px-3 py-2">Name</th>
+          <th class="px-3 py-2">Email</th>
+          <th class="px-3 py-2">Status</th>
+          <th class="px-3 py-2">Submitted</th>
+          <th class="px-3 py-2"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in attempts %}
+          <tr class="border-t border-slate-200">
+            <td class="px-3 py-2">{{ a.student_name or 'Anonymous' }}</td>
+            <td class="px-3 py-2 text-slate-500">{{ a.student_email or '' }}</td>
+            <td class="px-3 py-2">
+              {% if a.is_partial %}
+                <span class="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">In progress</span>
+              {% else %}
+                <span class="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Done</span>
+              {% endif %}
+            </td>
+            <td class="px-3 py-2 text-slate-500">{{ a.submitted_at_fmt or a.started_at_fmt }}</td>
+            <td class="px-3 py-2 text-right">
+              <a href="{{ url_for('attempt_detail', quiz_id=quiz.id, aid=a.id) }}" class="text-xs px-2 py-1 bg-slate-100 rounded hover:bg-slate-200">View</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+{% endif %}
+
+<script>
+  (function() {
+    const copyBtn = document.getElementById('copy-link-btn');
+    if (copyBtn) {
+      copyBtn.onclick = function() {
+        navigator.clipboard.writeText(copyBtn.dataset.link).then(function() {
+          const old = copyBtn.textContent;
+          copyBtn.textContent = '✓ Copied!';
+          setTimeout(function() { copyBtn.textContent = old; }, 2000);
+        });
+      };
+    }
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) refreshBtn.onclick = function() { location.reload(); };
+    // Auto-refresh every 30s so polls feel live
+    setInterval(function() { location.reload(); }, 30000);
+  })();
+</script>
+{% endblock %}
