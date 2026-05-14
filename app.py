@@ -710,6 +710,8 @@ def quiz_results(quiz_id):
         ).fetchall()]
         # Per-question stats — only count answers from the SAME deduped set of attempts
         # shown in the table above, so the top totals and the per-question totals reconcile.
+        # Additionally, defensively dedupe answer rows per attempt (older bug left duplicates
+        # in some prod databases) by picking only the most recent answer per attempt.
         visible_ids = [a["id"] for a in attempts]
         stats = []
         for q in questions:
@@ -718,7 +720,12 @@ def quiz_results(quiz_id):
             if visible_ids:
                 placeholders = ",".join(["?"] * len(visible_ids))
                 ans_rows = conn.execute(
-                    f"SELECT answer, is_correct FROM answers WHERE question_id=? AND attempt_id IN ({placeholders})",
+                    f"""SELECT answer, is_correct FROM answers
+                        WHERE id IN (
+                            SELECT MAX(id) FROM answers
+                            WHERE question_id=? AND attempt_id IN ({placeholders})
+                            GROUP BY attempt_id
+                        )""",
                     (q["id"], *visible_ids),
                 ).fetchall()
             else:
