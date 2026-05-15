@@ -1,29 +1,138 @@
 {% extends "base.html" %}
+{% block title %}QuizForge — Online Quiz Maker, Exam Software & Live Poll Platform{% endblock %}
+{% block description %}Free online quiz maker for teachers, trainers and certification bodies. Build secure online exams with anti-cheating, branded certificates, real-time live polls, and AI quiz generation from any document.{% endblock %}
+
 {% block content %}
-<section class="text-center py-12">
-  <h1 class="text-5xl font-bold text-slate-900 mb-4">Run quizzes, exams &amp; live polls</h1>
-  <p class="text-lg text-slate-600 max-w-2xl mx-auto mb-8">
-    Build assessments with 10+ question types. Share a link or run a real-time session and watch responses pour in live.
+
+{# ====== HERO ====== #}
+<section class="text-center py-12 md:py-16">
+  <p class="inline-block text-xs uppercase tracking-wider bg-brand-50 text-brand-700 px-3 py-1 rounded-full mb-4">All-in-one assessment platform</p>
+  <h1 class="text-4xl md:text-6xl font-bold text-slate-900 mb-5 leading-tight">
+    Build online <span class="text-brand-700">quizzes, exams &amp; live polls</span><br class="hidden md:block" />
+    that look professional and prevent cheating.
+  </h1>
+  <p class="text-lg text-slate-600 max-w-2xl mx-auto mb-7">
+    The free online quiz maker for teachers, trainers and certification bodies. Auto-graded MCQ tests, anti-cheating exams, real-time polling, branded certificates, and AI quiz generation from any document — in one place.
   </p>
-  <div class="flex justify-center gap-3">
-    <a href="{{ url_for('register') }}" class="px-5 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">Create a quiz</a>
-    <a href="{{ url_for('join') }}" class="px-5 py-3 bg-white border border-slate-300 rounded-lg hover:bg-slate-100">Join with a code</a>
+  <div class="flex flex-wrap justify-center gap-3">
+    <a href="{{ url_for('register') }}" class="px-6 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">Start free — no credit card</a>
+    <a href="{{ url_for('join') }}" class="px-6 py-3 bg-white border border-slate-300 rounded-lg hover:bg-slate-100">I have a quiz code</a>
+  </div>
+  <p class="text-xs text-slate-500 mt-3">Free forever for personal use · Self-hostable · Your data, your servers.</p>
+</section>
+
+{# ====== TRUSTED BY (social proof placeholder) ====== #}
+<section class="bg-white border border-slate-200 rounded-lg p-5 mb-10">
+  <p class="text-xs uppercase tracking-wider text-slate-500 text-center mb-3">Built for</p>
+  <div class="flex flex-wrap justify-center gap-x-8 gap-y-2 text-sm text-slate-600 font-medium">
+    <span>🎓 Schools &amp; universities</span>
+    <span>👩‍🏫 Trainers &amp; coaches</span>
+    <span>🏢 Corporate L&amp;D</span>
+    <span>📜 Certification bodies</span>
+    <span>📊 Researchers &amp; surveyors</span>
   </div>
 </section>
 
-<section class="grid md:grid-cols-3 gap-4 mt-8">
-  {% for title, body in [
-    ('10+ question types', 'MCQ, true/false, short/long answer, fill-in-blank, matching, rating, polls, word clouds.'),
-    ('Live or async', 'Run a real-time Kahoot-style session, or share a link students take on their own time.'),
-    ('Import &amp; export', 'Paste from Word, upload .docx/.csv/.txt, export results to CSV or Excel.'),
-    ('Auto-grading', 'Objective questions graded instantly. Essays flagged for manual review.'),
-    ('Real-time dashboard', 'See who joined, who answered, and aggregate results live as they come in.'),
-    ('Self-hosted &amp; free', 'Your data stays on your server. Deploy anywhere Python runs.'),
-  ] %}
-    <div class="bg-white border border-slate-200 rounded-lg p-5">
-      <h3 class="font-semibold text-slate-900 mb-1">{{ title|safe }}</h3>
-      <p class="text-sm text-slate-600">{{ body|safe }}</p>
+{# ====== FEATURES GRID ====== #}
+<section class="mb-12">
+  <h2 class="text-3xl font-bold text-center mb-2">Everything you need to assess and engage</h2>
+  <p class="text-center text-slate-600 mb-8 max-w-2xl mx-auto">Replace 3 tools — Kahoot, ClassMarker and Mentimeter — with one platform. Save time, save money, keep your data.</p>
+  <div class="grid md:grid-cols-3 gap-4">
+    {% set feats = [
+      ('🧠 11+ question types', 'Multiple choice (single/multi), True/False, Short answer, Long answer/essay, Fill-in-blank, Rating, NPS, Polls, Word cloud and more.'),
+      ('🎮 Live game-show mode', 'Run real-time interactive sessions with a join code. See answers stream in live with bar charts and a leaderboard.'),
+      ('📄 Async share link', 'Share a link, students take the quiz on their own time. Auto-graded with results in the dashboard.'),
+      ('🛡 Anti-cheating exams', 'Tab-switch detection, copy/paste &amp; right-click block, full-screen lock, password protect, auto-submit after N violations.'),
+      ('🤖 AI quiz generator', 'Paste any document, PDF or topic and our AI builds the questions for you in seconds. Edit, save, share.'),
+      ('🏆 Branded certificates', 'Auto-generated PDF certificates on pass with unique serials and verification URL — coming next week.'),
+      ('🔀 Smart randomization', 'Randomize question order AND answer-option order per attempt to discourage memorization.'),
+      ('⏱ Time limits everywhere', 'Whole-exam timer, per-question timer with auto-advance — set once, apply to all questions in one click.'),
+      ('💾 Auto-save partial answers', 'Students never lose work — every keystroke is saved. Half-finished attempts still show in your dashboard.'),
+      ('📥 Bulk import', 'Paste from Word, upload .docx, .csv or .txt to create 50+ questions in seconds.'),
+      ('📊 Real-time results', 'Live aggregate dashboards, per-question bar charts, NPS score, word clouds, who-picked-each-option drill-down.'),
+      ('📤 CSV + Excel export', 'Download every response with per-question breakdown and integrity violations. Compatible with all spreadsheet tools.'),
+    ] %}
+    {% for title, body in feats %}
+      <div class="bg-white border border-slate-200 rounded-lg p-5 hover:border-brand-300 transition">
+        <h3 class="font-semibold text-slate-900 mb-1">{{ title|safe }}</h3>
+        <p class="text-sm text-slate-600">{{ body|safe }}</p>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+{# ====== HOW IT WORKS ====== #}
+<section class="mb-12 bg-white border border-slate-200 rounded-lg p-8">
+  <h2 class="text-3xl font-bold text-center mb-8">How it works</h2>
+  <div class="grid md:grid-cols-3 gap-6">
+    <div>
+      <div class="w-10 h-10 rounded-full bg-brand-100 text-brand-700 grid place-items-center font-bold mb-3">1</div>
+      <h3 class="font-semibold mb-1">Create</h3>
+      <p class="text-sm text-slate-600">Sign up free. Build a quiz manually, paste from Word, or let the AI generate questions from your study material.</p>
     </div>
-  {% endfor %}
+    <div>
+      <div class="w-10 h-10 rounded-full bg-brand-100 text-brand-700 grid place-items-center font-bold mb-3">2</div>
+      <h3 class="font-semibold mb-1">Share</h3>
+      <p class="text-sm text-slate-600">Send a share link, or run a live session with a 6-character join code. Works on any browser. No app to download.</p>
+    </div>
+    <div>
+      <div class="w-10 h-10 rounded-full bg-brand-100 text-brand-700 grid place-items-center font-bold mb-3">3</div>
+      <h3 class="font-semibold mb-1">Analyse</h3>
+      <p class="text-sm text-slate-600">Get instant auto-graded results, who answered what, integrity violations and an export-ready CSV / Excel report.</p>
+    </div>
+  </div>
+</section>
+
+{# ====== SEGMENTS / USE CASES ====== #}
+<section class="mb-12">
+  <h2 class="text-3xl font-bold text-center mb-2">Built for every assessment use case</h2>
+  <p class="text-center text-slate-600 mb-8">Pick what fits — one platform handles all of them.</p>
+  <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+    {% for icon, name, line, link in [
+      ('🎓','School &amp; classroom','Engage students with live game-show quizzes and weekly assessments.','#schools'),
+      ('🏢','Corporate training','Track employee training with branded exams and pass-fail certification.','#corporate'),
+      ('📜','Certification body','Run secure exams with anti-cheating and tamper-proof certificates.','#certification'),
+      ('🎤','Events &amp; speakers','Run live polls during conferences and webinars. Word clouds, NPS, audience Q&amp;A.','#events'),
+      ('📋','Customer survey','Anonymous NPS and feedback surveys with real-time aggregate dashboards.','#surveys'),
+      ('🧑‍💼','HR &amp; hiring','Pre-screen candidates with timed skill assessments and webcam proctoring.','#hiring'),
+      ('🎯','Online courses','Gate course-completion certificates behind a real graded test.','#courses'),
+      ('🏫','Vocational schools','Manage cohorts, track progress, issue verifiable certificates.','#vocational'),
+    ] %}
+      <a href="{{ url_for('use_cases_page') }}{{ link }}" class="block bg-white border border-slate-200 rounded-lg p-4 hover:border-brand-400 transition">
+        <p class="text-2xl">{{ icon|safe }}</p>
+        <p class="font-semibold mt-1">{{ name|safe }}</p>
+        <p class="text-xs text-slate-500 mt-1">{{ line|safe }}</p>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+
+{# ====== CTA ====== #}
+<section class="bg-brand-700 text-white rounded-xl p-10 text-center mb-12">
+  <h2 class="text-3xl font-bold mb-3">Stop juggling 3 tools. Use one.</h2>
+  <p class="opacity-90 max-w-xl mx-auto mb-5">Free to start, scales with you. No credit card, no time-limited trial. Upgrade only when you need branding, organisations or higher limits.</p>
+  <a href="{{ url_for('register') }}" class="inline-block px-6 py-3 bg-white text-brand-700 rounded-lg hover:bg-brand-50 font-semibold">Create your first quiz — free</a>
+</section>
+
+{# ====== FAQ (also SEO gold) ====== #}
+<section class="mb-12">
+  <h2 class="text-3xl font-bold text-center mb-6">Frequently asked questions</h2>
+  <div class="space-y-2 max-w-3xl mx-auto">
+    {% for q, a in [
+      ('Is QuizForge really free?', 'Yes. The Free plan is genuinely free forever and is enough for individual teachers and small classes. Paid plans add organisations, white-label, AI quotas, integrations and priority support.'),
+      ('Can I create exams with cheating protection?', 'Yes — tab-switch detection, copy/paste block, right-click block, full-screen lock, password protection and auto-submit after N integrity violations are all built in and configurable per quiz.'),
+      ('Does it generate questions automatically with AI?', 'Yes. Paste a topic, study notes or upload a PDF/docx and QuizForge generates ready-to-use questions in seconds. You can edit them before publishing.'),
+      ('Can I run live game-show style quizzes like Kahoot?', 'Yes — every quiz has a Live mode with a 6-character join code, real-time leaderboard, and live aggregate charts as students answer.'),
+      ('Can I issue certificates?', 'Yes — branded PDF certificates with unique serial numbers and a public verification URL are part of the next release.'),
+      ('Do you support polls and surveys?', 'Yes. Polls have a dedicated results dashboard with bar charts, NPS scoring, word clouds and per-option drill-down to see who picked what.'),
+      ('Can I export results?', 'Every quiz can be exported to CSV and Excel including per-question answers, integrity violations and how many questions each respondent answered.'),
+      ('Is my data private?', 'Yes. Your responses live in your own database (PostgreSQL). QuizForge is open-core and can be self-hosted entirely on your servers if you need data residency.'),
+    ] %}
+      <details class="bg-white border border-slate-200 rounded-lg p-4">
+        <summary class="font-semibold cursor-pointer">{{ q }}</summary>
+        <p class="text-sm text-slate-600 mt-2">{{ a }}</p>
+      </details>
+    {% endfor %}
+  </div>
 </section>
 {% endblock %}

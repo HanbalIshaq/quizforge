@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Privacy Policy — QuizForge{% endblock %}
+{% block description %}QuizForge privacy policy: what data we collect, why, and how to delete it. Self-hosted option means data stays on your servers.{% endblock %}
+
+{% block content %}
+<article class="prose max-w-3xl mx-auto py-8">
+  <h1 class="text-3xl font-bold mb-2">Privacy Policy</h1>
+  <p class="text-sm text-slate-500 mb-6">Last updated: 2026-05-15</p>
+
+  <h2 class="text-xl font-bold mt-6 mb-2">1. What we collect</h2>
+  <p class="text-sm text-slate-700">When you sign up, we collect your name, email address, and a salted bcrypt hash of your password. When you create quizzes, we store the quiz content, settings, and the responses submitted to it. When students take quizzes, we may store their name, email (if your quiz collects it), their answers, attempt timestamps, IP address (for fraud/abuse prevention), and integrity-violation events (tab switches, paste attempts, etc.) when anti-cheating is enabled.</p>
+
+  <h2 class="text-xl font-bold mt-6 mb-2">2. Why we collect it</h2>
+  <p class="text-sm text-slate-700">Solely to operate the service: authenticate accounts, render quizzes, grade responses, generate reports, and prevent abuse. We do not sell your data, ever. We do not use student responses to train AI models.</p>
+
+  <h2 class="text-xl font-bold mt-6 mb-2">3. Where it\'s stored</h2>
+  <p class="text-sm text-slate-700">Data is stored in a PostgreSQL database under our or your operator\'s control. If you use the hosted QuizForge service, data is stored with reputable cloud providers (Neon / Render). If you self-host, the data never leaves your servers.</p>
+
+  <h2 class="text-xl font-bold mt-6 mb-2">4. Sharing</h2>
+  <p class="text-sm text-slate-700">We do not share your data with third parties except: (a) payment processors when you upgrade (Stripe), (b) law enforcement when legally compelled. We never sell data to advertisers.</p>
+
+  <h2 class="text-xl font-bold mt-6 mb-2">5. AI features</h2>
+  <p class="text-sm text-slate-700">When you use the optional AI quiz generator, the text you submit is sent to an LLM API provider (e.g. Anthropic) under their privacy terms, processed once, and not stored by them long-term. Self-hosters can disable this feature.</p>
+
+  <h2 class="text-xl font-bold mt-6 mb-2">6. Deletion</h2>
+  <p class="text-sm text-slate-700">You can delete any quiz or individual response from your admin dashboard. Account deletion is available on request — email us. Self-hosters control their own retention.</p>
+
+  <h2 class="text-xl font-bold mt-6 mb-2">7. Cookies</h2>
+  <p class="text-sm text-slate-700">We use a single session cookie for login state. No third-party trackers, no advertising cookies, no analytics by default.</p>
+
+  <h2 class="text-xl font-bold mt-6 mb-2">8. Contact</h2>
+  <p class="text-sm text-slate-700">For privacy questions email <a class="text-brand-700" href="mailto:privacy@quizforge.example">privacy@quizforge.example</a>.</p>
+</article>
+{% endblock %}

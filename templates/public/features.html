@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Features — Online quiz maker, exam software, anti-cheating &amp; AI generation | QuizForge{% endblock %}
+{% block description %}QuizForge feature list: 11+ question types, live game-show mode, anti-cheating exams, AI quiz generation, branded certificates, real-time analytics and CSV/Excel exports.{% endblock %}
+{% block keywords %}online quiz software features, anti-cheating exam, AI quiz generator, live poll software features, certification platform features, MCQ test maker, online assessment platform{% endblock %}
+
+{% block content %}
+<section class="text-center py-10">
+  <h1 class="text-4xl md:text-5xl font-bold mb-3">Every feature you need to assess and engage</h1>
+  <p class="text-slate-600 max-w-2xl mx-auto">A complete tour of QuizForge — from question types to anti-cheating, from AI generation to certificate verification.</p>
+</section>
+
+{% macro section(title, icon, items) %}
+<section class="mb-10">
+  <h2 class="text-2xl font-bold mb-1">{{ icon|safe }} {{ title }}</h2>
+  <div class="bg-white border border-slate-200 rounded-lg divide-y divide-slate-100">
+    {% for name, body in items %}
+      <div class="p-4">
+        <p class="font-semibold text-slate-900">{{ name }}</p>
+        <p class="text-sm text-slate-600 mt-1">{{ body }}</p>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endmacro %}
+
+{{ section('Question types', '🧠', [
+  ('Multiple choice — single answer', 'Classic A/B/C/D MCQ with auto-grading. Mark one correct answer.'),
+  ('Multiple choice — multiple answers', 'Select-all-that-apply with strict matching: all correct AND no wrong picks.'),
+  ('True / False (or Yes / No)', 'Two-button format, perfect for quick comprehension checks and poll yes/no.'),
+  ('Short answer', 'Single-line text input with case-insensitive matching against a list of accepted answers.'),
+  ('Long answer / essay', 'Multi-line input that goes into manual grading. Teachers grade with optional written feedback.'),
+  ('Fill-in-the-blank', 'Same matching rules as short answer, common for vocabulary and definition tests.'),
+  ('Rating (1–5 stars)', 'Star rating widget. Aggregate dashboard shows average plus full distribution.'),
+  ('NPS (Net Promoter Score, 0–10)', 'Industry-standard customer satisfaction with detractors/passives/promoters and computed NPS.'),
+  ('Poll choice', 'Same shape as MCQ but with no correct answer — pure opinion data.'),
+  ('Open-ended', 'Free-text response, ungraded. Surfaces as a list and a word-frequency cloud in results.'),
+  ('Word cloud (live)', 'Best for live audience engagement — words size up by frequency as people answer.'),
+]) }}
+
+{{ section('Two ways to deliver', '🚀', [
+  ('Async share-link mode', 'Send a URL or a 7-character share code. Students take the quiz any time, get instant auto-graded results, and you see everything in your dashboard.'),
+  ('Live game-show mode', 'Like Kahoot — start a session with a 6-character join code. Students join from any device. You push questions one at a time. Live bar charts, leaderboard and reveal-the-answer animation.'),
+  ('Polls and surveys (real-time)', 'A dedicated polling experience with a results dashboard that auto-refreshes every 30 seconds. NPS, word clouds, drill-down to see who picked which option.'),
+  ('Paginated one-question-per-page', 'Auto-advance when a per-question timer expires. Optional setting for high-stakes online exams.'),
+]) }}
+
+{{ section('Anti-cheating &amp; integrity', '🛡', [
+  ('Tab-switch detection', 'Detects every time the student switches away. Each violation is logged with a timestamp.'),
+  ('Full-screen lock', 'Quiz takes over the screen; exiting full-screen is logged as a violation.'),
+  ('Block copy / paste / cut', 'Clipboard operations are silently blocked. Common cheating vector closed.'),
+  ('Block right-click', 'Disables the context menu so students can\'t inspect or copy questions.'),
+  ('Block text selection', 'Students can\'t highlight question text — defeats screen-reading and OCR.'),
+  ('Auto-submit after N violations', 'Configurable per quiz: e.g. after 3 violations the exam auto-submits to a flagged attempt.'),
+  ('Password-protect the quiz', 'Add a password gate before the quiz loads, so only invited students can take it.'),
+  ('Integrity log per attempt', 'Every violation appears in the attempt detail with type and timestamp — admissible evidence for retake decisions.'),
+  ('Coming next: webcam proctoring + face / object detection', 'Periodic snapshots, "no face / multiple faces" alerts, phone-on-desk detection via on-device AI.'),
+]) }}
+
+{{ section('AI-powered features', '🤖', [
+  ('AI quiz generation from any source', 'Paste a document, lecture notes, a URL or a topic. The AI generates ready-to-use questions in seconds. Pick number of questions, types, and difficulty.'),
+  ('AI grading assistant (coming soon)', 'Suggested scores and feedback for essay answers — teacher always has final say.'),
+  ('AI question improver (coming soon)', 'Detect ambiguous wording, biased phrasing, or duplicate correct answers automatically.'),
+  ('AI proctoring lite (roadmap)', 'Browser-only face and object detection — no extra software, no extra cost.'),
+]) }}
+
+{{ section('Results &amp; analytics', '📊', [
+  ('Real-time aggregate dashboard', 'For polls and surveys: total respondents, completed vs in-progress, per-question bar charts that auto-refresh.'),
+  ('Per-option drill-down', 'Click any option to see exactly which respondents picked it.'),
+  ('Per-respondent breakdown', 'See every student\'s answer to every question, with auto/manual grading and integrity violations.'),
+  ('NPS dashboard', 'Industry-standard NPS chart with detractors / passives / promoters and computed score.'),
+  ('Word cloud generation', 'Open-text responses are summarised as a frequency-weighted tag cloud.'),
+  ('CSV export', 'Download a row per respondent including name, email, score, %, "Questions answered", every question column, and integrity violation count.'),
+  ('Excel export', 'Same as CSV but formatted .xlsx with column widths and header styling.'),
+  ('Dedupe controls', '"Remove duplicates" and "Remove anonymous" buttons clean up the respondent list in one click.'),
+]) }}
+
+{{ section('Teacher productivity', '⚡', [
+  ('Bulk import from Word', 'Paste from .docx or upload — questions parsed automatically.'),
+  ('Bulk import from CSV', 'Standard CSV format with columns for type, text, options, correct answer and points.'),
+  ('Bulk import from plain text', 'Aiken-style text format that lets you build 50 questions in a couple of minutes.'),
+  ('Bulk apply per-question time', 'Set a default time limit (e.g. 60 seconds) and apply it to every question in one click.'),
+  ('Auto-save settings', 'Every checkbox and field saves automatically — no Save button to hunt for.'),
+  ('Auto-save partial student answers', 'Students never lose work — every keystroke is sent to the server with a debounce.'),
+  ('Question bank (coming soon)', 'Reuse questions across multiple quizzes with categories and tags.'),
+]) }}
+
+{{ section('Branding &amp; certificates', '🏆', [
+  ('Branded certificate (coming next release)', 'Auto-generated PDF certificate when a student passes — your logo, your colours, unique serial number.'),
+  ('Certificate verification URL', 'Each certificate has a public verification page so third parties can confirm authenticity.'),
+  ('Custom domain (Pro+)', 'Run QuizForge at quizzes.yourdomain.com.'),
+  ('Hide QuizForge branding (Pro+)', 'White-label your student-facing pages.'),
+]) }}
+
+{{ section('Integrations &amp; platform', '🔌', [
+  ('Self-hostable on any server', 'Python + PostgreSQL — runs on Render, Fly.io, Heroku, AWS, your own VPS, or via Docker (coming soon).'),
+  ('PostgreSQL database', 'Production-grade. Scales to millions of responses. Compatible with Neon, Supabase, Render, AWS RDS.'),
+  ('REST API + webhooks (Business+)', 'Build automations: trigger on quiz submission, push results to Zapier, n8n, or your data warehouse.'),
+  ('LMS integration (LTI 1.3 + SCORM) — roadmap', 'Plug into Canvas, Moodle, Schoology, Blackboard.'),
+  ('Google Classroom / Microsoft Teams plugins — roadmap', 'Push quizzes, pull grades automatically.'),
+]) }}
+
+<section class="text-center py-10">
+  <h2 class="text-3xl font-bold mb-3">Ready to try it?</h2>
+  <a href="{{ url_for('register') }}" class="inline-block px-6 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700">Get started free</a>
+  <a href="{{ url_for('pricing_page') }}" class="inline-block px-6 py-3 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 ml-2">See pricing</a>
+</section>
+{% endblock %}

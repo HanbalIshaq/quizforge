@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Use cases — Online quizzes for schools, trainers, certification, surveys | QuizForge{% endblock %}
+{% block description %}See how schools, corporate trainers, certification bodies, conference speakers and HR teams use QuizForge for online assessment, certification, audience polling, and candidate screening.{% endblock %}
+{% block keywords %}online quiz for schools, employee training quiz, certification exam software, conference live polls, NPS survey tool, candidate assessment software, online vocational training{% endblock %}
+
+{% block content %}
+<section class="text-center py-10">
+  <h1 class="text-4xl md:text-5xl font-bold mb-3">Built for every assessment use case</h1>
+  <p class="text-slate-600 max-w-2xl mx-auto">From kindergarten quizzes to professional certification, QuizForge handles them all.</p>
+</section>
+
+{% macro card(anchor, icon, audience, headline, pains, wins) %}
+<section id="{{ anchor }}" class="bg-white border border-slate-200 rounded-lg p-6 mb-6">
+  <div class="flex items-start gap-4">
+    <div class="text-4xl">{{ icon|safe }}</div>
+    <div>
+      <p class="text-xs uppercase tracking-wider text-slate-500">{{ audience }}</p>
+      <h2 class="text-2xl font-bold mt-1 mb-2">{{ headline|safe }}</h2>
+    </div>
+  </div>
+  <div class="grid md:grid-cols-2 gap-4 mt-4">
+    <div>
+      <p class="font-semibold text-slate-900 mb-2">The pain</p>
+      <ul class="space-y-1 text-sm text-slate-700">
+        {% for p in pains %}<li>❌ {{ p|safe }}</li>{% endfor %}
+      </ul>
+    </div>
+    <div>
+      <p class="font-semibold text-slate-900 mb-2">How QuizForge helps</p>
+      <ul class="space-y-1 text-sm text-slate-700">
+        {% for w in wins %}<li>✅ {{ w|safe }}</li>{% endfor %}
+      </ul>
+    </div>
+  </div>
+</section>
+{% endmacro %}
+
+{{ card('schools', '🎓', 'School &amp; classroom teachers', 'Engaging quizzes and weekly assessments for K-12 and university classes',
+  ['Kids ignore boring paper quizzes', 'Hard to grade 30 students manually each week', 'No idea who actually understood the lesson', 'Cheating via phone during online exams'],
+  ['Live game-show mode keeps every student engaged', 'Auto-grading saves hours of marking', 'Per-question analytics show exactly what was misunderstood', 'Anti-cheating: tab-switch detection + lockdown mode for assessments']
+) }}
+
+{{ card('corporate', '🏢', 'Corporate L&amp;D and HR training teams', 'Track employee training with pass-fail tests and audit-ready records',
+  ['Compliance training requires proof of completion', 'Spreadsheets break down at scale', 'Auditors want documented test results', 'Existing tools cost $20K+/year'],
+  ['Branded certificates issued automatically on pass', 'Every attempt logged with timestamp + IP for audit trail', 'CSV exports plug straight into your LMS or HR system', 'A fraction of the price of enterprise tools']
+) }}
+
+{{ card('certification', '📜', 'Certification bodies and training academies', 'Run secure, verifiable certification exams that hold up to scrutiny',
+  ['Suspicion of cheating undermines your credentials', 'Manually issuing PDF certificates is tedious', 'No way for employers to verify a candidate\'s certificate is real', 'Existing tools charge per certificate'],
+  ['Anti-cheating: tab-switch, paste-block, fullscreen lock, auto-submit at N violations', 'Auto-generated branded PDF certificates with unique serial numbers', 'Public verification URL — anyone can confirm a certificate is valid', 'Unlimited certificates on Business plan']
+) }}
+
+{{ card('events', '🎤', 'Conference speakers, webinar hosts, internal meeting facilitators', 'Engage your audience in real time with live polls, word clouds and Q&amp;A',
+  ['Audience falls asleep during slides', 'Survey emails after the event get 5% response', 'Real-time engagement tools cost $200/month'],
+  ['6-character join code — no app to install', 'Live word cloud, NPS, MCQ, true/false', 'Real-time bar charts as people answer', 'NPS score computed automatically']
+) }}
+
+{{ card('surveys', '📋', 'Researchers, product teams, customer-success', 'Anonymous surveys with statistical analysis and NPS scoring',
+  ['Survey tools either don\'t support polls or don\'t support exams', 'Anonymous responses get mixed with named ones', 'NPS calculation done manually in Excel'],
+  ['Dedicated anonymous Survey kind — names and emails are never stored', 'NPS computed automatically with detractors / passives / promoters split', 'Word cloud and bar chart per question', 'Word frequency analysis for open-text answers']
+) }}
+
+{{ card('hiring', '🧑‍💼', 'Recruiters, HR, hiring managers', 'Pre-screen candidates with timed skill assessments',
+  ['Resume-only screening produces too many false positives', 'Phone screens for technical depth waste senior-engineer time', 'Existing assessment tools cost $10K+/year'],
+  ['Build any test — multiple choice, code-like short-answer, scenarios', 'Time-limited exams with anti-cheating prevent answer-sharing', 'Rank candidates by auto-computed score', 'CSV export integrates with any ATS']
+) }}
+
+{{ card('courses', '🎯', 'Online course creators (Udemy / Teachable / Skool alternative)', 'Gate course completion certificates behind a real graded test',
+  ['Course completion percentages are meaningless — students click through', 'Issuing branded certificates manually is tedious', 'No way to verify someone really took your course'],
+  ['Lock the certificate behind a pass-mark test', 'Pass + verification URL = something graduates can actually share on LinkedIn', 'Anti-cheating prevents answer-leaks from devaluing the certificate', 'Pay-per-quiz roadmap: charge students to retake']
+) }}
+
+{{ card('vocational', '🏫', 'Vocational schools, driving schools, language schools, IT cert prep', 'Manage student cohorts, deliver standardized exams, issue certificates',
+  ['Multiple instructors, multiple courses, each with its own paper exams', 'Different students at different stages — chaotic', 'Reprinting "wallet card" certificates costs money'],
+  ['Multi-instructor accounts (Pro and Business plans)', 'Question banks reusable across courses (roadmap)', 'Cohort exports, progress tracking', 'Verifiable digital certificates instead of paper']
+) }}
+
+<section class="bg-brand-700 text-white rounded-xl p-10 text-center mb-12 mt-4">
+  <h2 class="text-3xl font-bold mb-3">Got a different use case?</h2>
+  <p class="opacity-90 max-w-xl mx-auto mb-5">QuizForge is flexible. If your use case isn\'t listed, it probably still works. Try it free.</p>
+  <a href="{{ url_for('register') }}" class="inline-block px-6 py-3 bg-white text-brand-700 rounded-lg hover:bg-brand-50 font-semibold">Start free</a>
+</section>
+{% endblock %}

@@ -131,6 +131,39 @@
     </details>
     {% endif %}
 
+    <details class="bg-white border border-slate-200 rounded-lg p-4" open>
+      <summary class="font-semibold cursor-pointer">🤖 AI quiz generator</summary>
+      <form id="ai-gen-form" class="mt-3 space-y-2 text-sm" onsubmit="return false;">
+        <p class="text-xs text-slate-500">Paste a topic, lecture notes, an article, or any source material. The AI will create ready-to-use questions you can edit.</p>
+        <textarea id="ai-source" rows="6" required
+                  class="w-full px-2 py-2 border rounded text-xs"
+                  placeholder="e.g. 'Photosynthesis in plants for 9th-grade biology' or paste your textbook chapter here..."></textarea>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="block text-xs text-slate-600">Questions
+            <input id="ai-n" type="number" min="1" max="30" value="10" class="w-full mt-1 px-2 py-1.5 border rounded" />
+          </label>
+          <label class="block text-xs text-slate-600">Difficulty
+            <select id="ai-difficulty" class="w-full mt-1 px-2 py-1.5 border rounded">
+              <option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option>
+            </select>
+          </label>
+        </div>
+        <label class="block text-xs text-slate-600">Question type
+          <select id="ai-qtype" class="w-full mt-1 px-2 py-1.5 border rounded">
+            <option value="mcq_single">Multiple choice (single answer)</option>
+            <option value="mcq_multi">Multiple choice (multi-select)</option>
+            <option value="true_false">True / False</option>
+            <option value="short_answer">Short answer</option>
+          </select>
+        </label>
+        <button id="ai-gen-btn" type="button"
+                class="w-full py-2 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded text-sm hover:from-brand-700 hover:to-brand-900">
+          ✨ Generate with AI
+        </button>
+        <p id="ai-status" class="text-xs text-slate-500 mt-1"></p>
+      </form>
+    </details>
+
     <details class="bg-white border border-slate-200 rounded-lg p-4">
       <summary class="font-semibold cursor-pointer">Bulk import</summary>
       <form method="post" action="{{ url_for('quiz_import', quiz_id=quiz.id) }}"
@@ -208,4 +241,48 @@ mcq_multi,Pick prime numbers,2,3,4,5,A|B|D,2</pre>
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/quiz-editor.js') }}?v={{ asset_v }}"></script>
+<script>
+  (function() {
+    const btn = document.getElementById('ai-gen-btn');
+    if (!btn) return;
+    const status = document.getElementById('ai-status');
+    btn.addEventListener('click', async function() {
+      const source = document.getElementById('ai-source').value.trim();
+      if (!source) { status.textContent = 'Please paste source material or a topic.'; status.className = 'text-xs text-red-600'; return; }
+      btn.disabled = true;
+      const oldLabel = btn.textContent;
+      btn.textContent = '✨ Generating… (~10s)';
+      status.textContent = 'Calling AI…';
+      status.className = 'text-xs text-amber-600';
+      try {
+        const res = await fetch(`/admin/quizzes/{{ quiz.id }}/ai-generate`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            source,
+            n: parseInt(document.getElementById('ai-n').value || '10', 10),
+            qtype: document.getElementById('ai-qtype').value,
+            difficulty: document.getElementById('ai-difficulty').value,
+          }),
+        });
+        const j = await res.json();
+        if (j.ok) {
+          status.textContent = `✓ Generated ${j.inserted} question(s). Reloading…`;
+          status.className = 'text-xs text-emerald-600';
+          setTimeout(() => location.reload(), 800);
+        } else {
+          status.textContent = '✗ ' + (j.error || 'Failed');
+          status.className = 'text-xs text-red-600';
+          btn.disabled = false;
+          btn.textContent = oldLabel;
+        }
+      } catch (e) {
+        status.textContent = '✗ Network error: ' + e;
+        status.className = 'text-xs text-red-600';
+        btn.disabled = false;
+        btn.textContent = oldLabel;
+      }
+    });
+  })();
+</script>
 {% endblock %}

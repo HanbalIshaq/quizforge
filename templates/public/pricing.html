@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Pricing — QuizForge online quiz, exam &amp; live poll platform{% endblock %}
+{% block description %}Simple, transparent pricing for QuizForge. Free forever for individuals. Paid plans for schools, training companies and certification bodies starting at $19/month.{% endblock %}
+{% block keywords %}quiz software pricing, online exam pricing, classmarker alternative, quizizz pricing, mentimeter pricing, free online quiz maker, certification platform cost{% endblock %}
+
+{% block content %}
+<section class="text-center py-10">
+  <h1 class="text-4xl md:text-5xl font-bold mb-3">Simple pricing that scales with you</h1>
+  <p class="text-slate-600 max-w-2xl mx-auto">Start free. Upgrade only when you need branding, more responses, or to manage a team. Cancel anytime.</p>
+  <div class="inline-flex bg-white border border-slate-200 rounded-full p-1 mt-5 text-sm">
+    <button id="billing-monthly" class="px-4 py-1.5 rounded-full bg-brand-600 text-white">Monthly</button>
+    <button id="billing-annual" class="px-4 py-1.5 rounded-full">Annual <span class="text-emerald-600 text-xs ml-1">−20%</span></button>
+  </div>
+</section>
+
+<section class="grid md:grid-cols-3 lg:grid-cols-5 gap-3 mb-12">
+  {% set plans = [
+    {'name':'Free',     'price_m':0,    'price_y':0,    'best_for':'Hobbyists, trying it out',                    'cta':'Start free','badge':'',
+     'features':['1 teacher', '50 responses / month', 'All question types', 'Auto-grading', 'Live mode (≤ 25 players)', 'QuizForge watermark on certificates']},
+    {'name':'Starter',  'price_m':19,   'price_y':190,  'best_for':'Solo trainers, freelancers, course creators', 'cta':'Start free 14-day trial','badge':'',
+     'features':['1 teacher', '500 responses / month', 'White-label certificates', 'AI quiz generation (50 / mo)', 'All anti-cheating', 'Email support']},
+    {'name':'Pro',      'price_m':49,   'price_y':470,  'best_for':'Small academies, online creators',           'cta':'Start free trial','badge':'Most popular',
+     'features':['3 teachers', '2,000 responses / mo', 'AI quiz generation (500 / mo)', 'Custom domain', 'Branded student-facing pages', 'Zapier + webhooks', 'Priority email support']},
+    {'name':'Business', 'price_m':149,  'price_y':1430, 'best_for':'Training companies, certification bodies',   'cta':'Start free trial','badge':'',
+     'features':['10 teachers', '10,000 responses / mo', 'AI generation (unlimited)', 'API access', 'SSO (Google / Microsoft)', 'Dedicated CSM', 'SLA-backed support']},
+    {'name':'Enterprise','price_m':499,'price_y':4790,  'best_for':'Universities, large vocational schools',     'cta':'Contact sales','badge':'',
+     'features':['Unlimited teachers', 'Unlimited responses', 'SAML SSO + audit log', 'Data residency options', 'On-prem / self-hosted', 'Dedicated infrastructure', '24/7 priority support']},
+  ] %}
+  {% for p in plans %}
+    <div class="bg-white border {{ 'border-brand-500 ring-2 ring-brand-100' if p.badge else 'border-slate-200' }} rounded-lg p-5 relative">
+      {% if p.badge %}<span class="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-600 text-white text-xs px-2 py-0.5 rounded-full">{{ p.badge }}</span>{% endif %}
+      <h3 class="font-bold text-lg">{{ p.name }}</h3>
+      <p class="text-xs text-slate-500 mb-3">{{ p.best_for|safe }}</p>
+      <p>
+        <span class="text-3xl font-bold" data-price-m="${{ p.price_m }}" data-price-y="${{ (p.price_y / 12)|round(0)|int }}">${{ p.price_m }}</span>
+        <span class="text-sm text-slate-500" data-suffix-m="/mo" data-suffix-y="/mo billed annually">/mo</span>
+      </p>
+      <a href="{{ url_for('register') if 'sales' not in p.cta else url_for('about_page') }}"
+         class="block text-center mt-4 py-2 rounded {{ 'bg-brand-600 text-white hover:bg-brand-700' if p.badge else 'bg-slate-100 hover:bg-slate-200' }}">
+        {{ p.cta }}
+      </a>
+      <ul class="mt-4 space-y-1.5 text-sm">
+        {% for f in p.features %}<li class="flex gap-2"><span class="text-emerald-600">✓</span><span>{{ f }}</span></li>{% endfor %}
+      </ul>
+    </div>
+  {% endfor %}
+</section>
+
+<section class="bg-white border border-slate-200 rounded-lg p-6 mb-10">
+  <h2 class="font-bold text-xl mb-2">Self-hosted licence</h2>
+  <p class="text-slate-600 text-sm">Need to keep all data on your own servers (data residency, government, healthcare, banking)? QuizForge can be installed on your VPS / cloud / on-prem with a one-time licence.</p>
+  <ul class="mt-3 grid md:grid-cols-2 gap-y-1.5 text-sm">
+    <li>✓ Single organisation: <b>$999/year</b></li>
+    <li>✓ Multi-org reseller licence: <b>$2,499/year</b></li>
+    <li>✓ Email-only support</li>
+    <li>✓ Source code &amp; updates included</li>
+  </ul>
+  <p class="text-xs text-slate-500 mt-3">Contact us for installation help, custom branding, or feature work.</p>
+</section>
+
+<section class="mb-12">
+  <h2 class="text-2xl font-bold text-center mb-5">All plans include</h2>
+  <div class="grid md:grid-cols-4 gap-3 text-sm">
+    {% for f in ['All 11+ question types','Live game-show mode','Async share-link mode','Bulk import .docx/.csv/.txt','Per-question + whole-exam timers','Real-time results dashboard','CSV + Excel export','Tab-switch / paste-block / fullscreen anti-cheating','Auto-save partial answers','Browser-close warning','Randomized questions and options','Multi-language student UI (Phase 7)'] %}
+      <div class="bg-white border border-slate-200 rounded p-3 flex gap-2 items-start"><span class="text-emerald-600">✓</span><span>{{ f }}</span></div>
+    {% endfor %}
+  </div>
+</section>
+
+<script>
+  document.getElementById('billing-monthly').onclick = function() { switchBilling('m'); };
+  document.getElementById('billing-annual').onclick  = function() { switchBilling('y'); };
+  function switchBilling(mode) {
+    const m = document.getElementById('billing-monthly');
+    const y = document.getElementById('billing-annual');
+    m.classList.toggle('bg-brand-600', mode==='m'); m.classList.toggle('text-white', mode==='m');
+    y.classList.toggle('bg-brand-600', mode==='y'); y.classList.toggle('text-white', mode==='y');
+    document.querySelectorAll('[data-price-m]').forEach(el => el.textContent = mode==='m' ? el.dataset.priceM : el.dataset.priceY);
+    document.querySelectorAll('[data-suffix-m]').forEach(el => el.textContent = mode==='m' ? el.dataset.suffixM : el.dataset.suffixY);
+  }
+</script>
+{% endblock %}

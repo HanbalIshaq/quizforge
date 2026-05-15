@@ -3,7 +3,37 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{% block title %}QuizForge{% endblock %}</title>
+  {% block meta %}
+  <title>{% block title %}QuizForge — Online Quiz, Exam & Live Poll Platform{% endblock %}</title>
+  <meta name="description" content="{% block description %}QuizForge is the all-in-one online assessment platform: create quizzes, exams, polls and surveys. Auto-graded, anti-cheating, branded certificates, AI quiz generator. Free to start.{% endblock %}" />
+  <meta name="keywords" content="{% block keywords %}online quiz maker, online exam software, free quiz creator, certification platform, online assessment tool, live poll software, survey maker, training quiz, anti-cheating exam, AI quiz generator, MCQ test maker, classroom assessment, employee training assessment{% endblock %}" />
+  <meta name="author" content="QuizForge" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="{{ request.url }}" />
+
+  {# Open Graph / Twitter #}
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="QuizForge" />
+  <meta property="og:title" content="{% block og_title %}{{ self.title() }}{% endblock %}" />
+  <meta property="og:description" content="{{ self.description() }}" />
+  <meta property="og:url" content="{{ request.url }}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{{ self.title() }}" />
+  <meta name="twitter:description" content="{{ self.description() }}" />
+  {% endblock %}
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "QuizForge",
+    "applicationCategory": "EducationalApplication",
+    "operatingSystem": "Web",
+    "offers": {"@type":"Offer","price":"0","priceCurrency":"USD"},
+    "description": "All-in-one platform for online quizzes, exams, certification, live polls and surveys with anti-cheating and AI quiz generation."
+  }
+  </script>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}?v={{ asset_v }}" />
   <script>
@@ -19,29 +49,32 @@
   </script>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
-  <header class="bg-white border-b border-slate-200">
-    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-      <a href="{{ url_for('home') }}" class="font-bold text-lg text-brand-700 flex items-center gap-2">
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-6">
+      <a href="{{ url_for('home') }}" class="font-bold text-lg text-brand-700 flex items-center gap-2 shrink-0">
         <span class="inline-block w-7 h-7 rounded bg-brand-600 text-white grid place-items-center text-sm">Q</span>
         QuizForge
       </a>
-      <nav class="flex items-center gap-3 text-sm">
+      <nav class="hidden md:flex items-center gap-5 text-sm text-slate-700">
+        <a href="{{ url_for('features_page') }}" class="hover:text-brand-700">Features</a>
+        <a href="{{ url_for('use_cases_page') }}" class="hover:text-brand-700">Use cases</a>
+        <a href="{{ url_for('pricing_page') }}" class="hover:text-brand-700">Pricing</a>
+        <a href="{{ url_for('join') }}" class="hover:text-brand-700">Take a quiz</a>
+      </nav>
+      <div class="flex items-center gap-3 text-sm">
         {% if user %}
           <a href="{{ url_for('admin_dashboard') }}" class="hover:text-brand-700">Dashboard</a>
-          {% if user.is_super_admin %}
-            <a href="{{ url_for('site_dashboard') }}" class="hover:text-brand-700">Site admin</a>
-          {% endif %}
-          <span class="text-slate-400">|</span>
-          <span class="text-slate-600">{{ user.name or user.email }}</span>
+          <span class="text-slate-400 hidden md:inline">|</span>
+          <span class="text-slate-600 hidden md:inline">{{ user.name or user.email }}</span>
           <a href="{{ url_for('logout') }}" class="text-slate-500 hover:text-red-600">Sign out</a>
         {% else %}
-          <a href="{{ url_for('join') }}" class="hover:text-brand-700">Join</a>
           <a href="{{ url_for('login') }}" class="hover:text-brand-700">Sign in</a>
-          <a href="{{ url_for('register') }}" class="px-3 py-1.5 bg-brand-600 text-white rounded hover:bg-brand-700">Sign up</a>
+          <a href="{{ url_for('register') }}" class="px-3 py-1.5 bg-brand-600 text-white rounded hover:bg-brand-700">Get started — free</a>
         {% endif %}
-      </nav>
+      </div>
     </div>
   </header>
+
   <main class="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
@@ -59,7 +92,53 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
-  <footer class="py-6 text-center text-xs text-slate-400">QuizForge &middot; self-hosted &middot; built with Flask</footer>
+
+  <footer class="bg-slate-900 text-slate-300 mt-12">
+    <div class="max-w-6xl mx-auto px-4 py-10 grid grid-cols-2 md:grid-cols-5 gap-6 text-sm">
+      <div class="col-span-2">
+        <div class="flex items-center gap-2 font-bold text-white text-lg">
+          <span class="inline-block w-7 h-7 rounded bg-brand-600 text-white grid place-items-center text-sm">Q</span>
+          QuizForge
+        </div>
+        <p class="mt-3 text-slate-400 max-w-xs">All-in-one online assessment platform: quizzes, exams, live polls and surveys with anti-cheating, branded certificates, and AI quiz generation.</p>
+      </div>
+      <div>
+        <p class="font-semibold text-white mb-2">Product</p>
+        <ul class="space-y-1">
+          <li><a class="hover:text-white" href="{{ url_for('features_page') }}">Features</a></li>
+          <li><a class="hover:text-white" href="{{ url_for('pricing_page') }}">Pricing</a></li>
+          <li><a class="hover:text-white" href="{{ url_for('use_cases_page') }}">Use cases</a></li>
+          <li><a class="hover:text-white" href="{{ url_for('join') }}">Take a quiz</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="font-semibold text-white mb-2">Company</p>
+        <ul class="space-y-1">
+          <li><a class="hover:text-white" href="{{ url_for('about_page') }}">About</a></li>
+          <li><a class="hover:text-white" href="{{ url_for('privacy_page') }}">Privacy</a></li>
+          <li><a class="hover:text-white" href="{{ url_for('terms_page') }}">Terms</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="font-semibold text-white mb-2">Account</p>
+        <ul class="space-y-1">
+          {% if user %}
+            <li><a class="hover:text-white" href="{{ url_for('admin_dashboard') }}">Dashboard</a></li>
+            <li><a class="hover:text-white" href="{{ url_for('logout') }}">Sign out</a></li>
+          {% else %}
+            <li><a class="hover:text-white" href="{{ url_for('login') }}">Sign in</a></li>
+            <li><a class="hover:text-white" href="{{ url_for('register') }}">Create account</a></li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+    <div class="border-t border-slate-800">
+      <div class="max-w-6xl mx-auto px-4 py-4 text-xs text-slate-500 flex flex-wrap justify-between gap-2">
+        <span>&copy; QuizForge. Built with Flask + PostgreSQL. Self-hostable.</span>
+        <span>Online quiz maker · online exam software · certification platform · live poll software</span>
+      </div>
+    </div>
+  </footer>
   {% block scripts %}{% endblock %}
 </body>
 </html>

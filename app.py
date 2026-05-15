@@ -114,9 +114,62 @@ def inject_globals():
 
 @app.route("/")
 def home():
-    if session.get("uid"):
-        return redirect(url_for("admin_dashboard"))
     return render_template("home.html")
+
+
+@app.route("/features")
+def features_page():
+    return render_template("public/features.html")
+
+
+@app.route("/pricing")
+def pricing_page():
+    return render_template("public/pricing.html")
+
+
+@app.route("/use-cases")
+def use_cases_page():
+    return render_template("public/use_cases.html")
+
+
+@app.route("/about")
+def about_page():
+    return render_template("public/about.html")
+
+
+@app.route("/privacy")
+def privacy_page():
+    return render_template("public/privacy.html")
+
+
+@app.route("/terms")
+def terms_page():
+    return render_template("public/terms.html")
+
+
+@app.route("/robots.txt")
+def robots_txt():
+    body = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /admin/\n"
+        "Disallow: /q/\n"
+        "Disallow: /live/\n"
+        f"Sitemap: {url_for('sitemap_xml', _external=True)}\n"
+    )
+    return Response(body, mimetype="text/plain")
+
+
+@app.route("/sitemap.xml")
+def sitemap_xml():
+    pages = ["home", "features_page", "pricing_page", "use_cases_page", "about_page",
+             "privacy_page", "terms_page", "register", "login", "join"]
+    urls = [url_for(p, _external=True) for p in pages]
+    body = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+    for u in urls:
+        body += f"  <url><loc>{u}</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>\n"
+    body += "</urlset>\n"
+    return Response(body, mimetype="application/xml")
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -667,6 +720,100 @@ def quiz_apply_time(quiz_id):
         return redirect(url_for("quiz_edit", quiz_id=quiz_id))
     finally:
         conn.close()
+
+
+@app.route("/admin/quizzes/<int:quiz_id>/ai-generate", methods=["POST"])
+@login_required
+def quiz_ai_generate(quiz_id):
+    """Generate quiz questions using an AI model. Reads ANTHROPIC_API_KEY from env."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return jsonify({"ok": False, "error": "AI is not configured on this server. Set the ANTHROPIC_API_KEY environment variable to enable AI quiz generation."}), 400
+    try:
+        import anthropic
+    except ImportError:
+        return jsonify({"ok": False, "error": "anthropic package not installed."}), 500
+    payload = request.get_json(force=True, silent=True) or {}
+    source_text = (payload.get("source") or "").strip()
+    n_questions = max(1, min(int(payload.get("n") or 10), 30))
+    qtype = payload.get("qtype") or "mcq_single"
+    difficulty = (payload.get("difficulty") or "medium").strip().lower()
+    if not source_text:
+        return jsonify({"ok": False, "error": "Provide source material or a topic."}), 400
+    if qtype not in {"mcq_single", "mcq_multi", "true_false", "short_answer"}:
+        qtype = "mcq_single"
+
+    conn = db.get_conn()
+    try:
+        owned_quiz_or_404(conn, quiz_id, session["uid"])
+    finally:
+        conn.close()
+
+    spec = {
+        "mcq_single": "Each question must have exactly 4 plausible options and ONE correct answer. Set type to 'mcq_single' and correct_answers to a single-element array of the 0-based index of the correct option.",
+        "mcq_multi":  "Each question must have 4-6 options with TWO OR MORE correct answers. Set type to 'mcq_multi' and correct_answers to an array of 0-based indices.",
+        "true_false": "Each question is a Yes/No or True/False statement. Set type to 'true_false', options to ['True','False'], correct_answers to [0] for True or [1] for False.",
+        "short_answer":"Each question expects a short factual answer (one to four words). Set type to 'short_answer', options to [], correct_answers to an array of acceptable answers (lowercase, no trailing punctuation).",
+    }[qtype]
+    prompt = (
+        f"You are an expert quiz writer. Generate {n_questions} {difficulty}-difficulty quiz questions "
+        f"from the source material below. {spec} Each question must have a 'text' field and 'points':1. "
+        f"Return ONLY a JSON array — no prose, no markdown, no explanation. Do not wrap in ```json fences.\n\n"
+        f"SOURCE MATERIAL:\n{source_text[:8000]}"
+    )
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=4000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = "".join(b.text for b in resp.content if hasattr(b, "text"))
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"AI request failed: {e}"}), 502
+    # Best-effort extract: trim to the first JSON array
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`").lstrip("json").strip()
+    start = raw.find("[")
+    end = raw.rfind("]")
+    if start == -1 or end == -1:
+        return jsonify({"ok": False, "error": "Could not parse the AI response. Try again with shorter source text."}), 502
+    try:
+        items = json.loads(raw[start:end + 1])
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Could not parse the AI response as JSON: {e}"}), 502
+
+    # Insert questions
+    conn = db.get_conn()
+    inserted = 0
+    try:
+        pos_row = conn.execute(
+            "SELECT COALESCE(MAX(position), -1)+1 AS p FROM questions WHERE quiz_id=?", (quiz_id,)
+        ).fetchone()
+        pos = pos_row["p"]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            text = (item.get("text") or "").strip()
+            if not text:
+                continue
+            options = item.get("options") or []
+            correct = item.get("correct_answers") or []
+            type_ = item.get("type") or qtype
+            points = int(item.get("points") or 1)
+            conn.execute(
+                """INSERT INTO questions(quiz_id, type, text, options, correct_answers, points, position, explanation)
+                   VALUES(?,?,?,?,?,?,?,?)""",
+                (quiz_id, type_, text, json.dumps(options), json.dumps(correct), points, pos, ""),
+            )
+            pos += 1
+            inserted += 1
+        conn.execute("UPDATE quizzes SET updated_at=? WHERE id=?", (db.now_ts(), quiz_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"ok": True, "inserted": inserted})
 
 
 @app.route("/admin/quizzes/<int:quiz_id>/import", methods=["POST"])

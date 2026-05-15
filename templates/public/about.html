@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}About QuizForge — the open online assessment platform{% endblock %}
+{% block description %}QuizForge is an all-in-one assessment platform that replaces Quizizz, ClassMarker and Mentimeter — without the lock-in. Self-host or use our hosted version.{% endblock %}
+{% block keywords %}about quizforge, open source quiz platform, self-hosted exam software, classmarker alternative, quizizz alternative, mentimeter alternative{% endblock %}
+
+{% block content %}
+<section class="py-10">
+  <h1 class="text-4xl md:text-5xl font-bold mb-4">About QuizForge</h1>
+  <p class="text-lg text-slate-600 max-w-3xl">
+    QuizForge is built for teachers, trainers and certification bodies who are tired of paying for three different tools to do one job. We rolled the best of <b>Quizizz</b> (live game-show), <b>ClassMarker</b> (formal exams + certificates) and <b>Mentimeter</b> (live polls) into a single platform — at a fraction of the price.
+  </p>
+</section>
+
+<section class="grid md:grid-cols-2 gap-8 mb-10">
+  <div class="bg-white border border-slate-200 rounded-lg p-6">
+    <h2 class="font-bold text-xl mb-2">Our mission</h2>
+    <p class="text-slate-600 text-sm">Make professional online assessment <b>affordable, beautiful and private</b>. Your students\' answers belong on your servers, not a third-party warehouse.</p>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-lg p-6">
+    <h2 class="font-bold text-xl mb-2">Why "open-core"</h2>
+    <p class="text-slate-600 text-sm">We give the core code away because we believe in software you actually own. Customers pay us for the hosted version (no setup hassle, automatic updates), branding, integrations and priority support.</p>
+  </div>
+</section>
+
+<section class="bg-white border border-slate-200 rounded-lg p-6 mb-10">
+  <h2 class="font-bold text-xl mb-3">What makes QuizForge different</h2>
+  <ul class="space-y-2 text-sm text-slate-700">
+    <li>✅ <b>One tool, three jobs</b> — exams, live polls, and surveys in a single platform.</li>
+    <li>✅ <b>Self-hostable</b> — install it on your own server in 5 minutes (PostgreSQL + Python).</li>
+    <li>✅ <b>Modern UI</b> — Tailwind-based design that doesn\'t look like it\'s from 2012 (looking at you, ClassMarker).</li>
+    <li>✅ <b>AI built in</b> — paste a document, get questions. No external service needed at the student level.</li>
+    <li>✅ <b>Anti-cheating that respects students</b> — tab-switch &amp; copy-paste detection without invasive webcam monitoring (unless you opt in).</li>
+    <li>✅ <b>Pay only when you grow</b> — free forever for solo use. No "trial" trap.</li>
+  </ul>
+</section>
+
+<section class="text-center py-10">
+  <h2 class="text-2xl font-bold mb-3">Get in touch</h2>
+  <p class="text-slate-600 mb-4">Questions, custom features, or want to discuss enterprise / self-hosted plans?</p>
+  <a href="mailto:hello@quizforge.example" class="inline-block px-6 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700">Email us</a>
+</section>
+{% endblock %}
