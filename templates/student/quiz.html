@@ -64,6 +64,32 @@
     </div>
   {% endif %}
 
+  {% if quiz.camera_proctor %}
+    <div id="proctor-gate" class="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4 text-sm">
+      <div class="flex items-start gap-3">
+        <div class="text-2xl">📷</div>
+        <div class="flex-1">
+          <p class="font-semibold text-purple-900">AI Camera Proctoring is active for this exam</p>
+          <ul class="text-xs text-purple-900 list-disc pl-5 mt-1 space-y-0.5">
+            <li>The system uses your webcam to confirm you are present and alone during the exam.</li>
+            <li>Hijab / headscarf is supported — only the visible face is tracked, no hair detection.</li>
+            <li>Snapshots are stored only on the exam server and only visible to the quiz administrator.</li>
+            <li>You'll see a small preview of your camera in the corner so you can verify alignment.</li>
+          </ul>
+          <button type="button" id="proctor-consent"
+                  class="mt-3 px-3 py-2 bg-purple-700 text-white rounded text-sm hover:bg-purple-800">
+            I understand — start camera &amp; begin exam
+          </button>
+          <p class="text-xs text-purple-700 mt-2" id="proctor-status">Camera not started yet.</p>
+        </div>
+      </div>
+    </div>
+    <div id="proctor-preview" class="hidden fixed bottom-4 right-4 z-40 bg-black rounded-lg shadow-lg overflow-hidden border-2 border-purple-500">
+      <video id="proctor-video" autoplay muted playsinline class="w-32 h-24 object-cover"></video>
+      <div class="text-center bg-purple-700 text-white text-xs py-0.5">🔴 Proctoring</div>
+    </div>
+  {% endif %}
+
   {% set anti_cheat_on = quiz.detect_tab_switch or quiz.anti_paste or quiz.anti_rightclick or quiz.block_selection or quiz.require_fullscreen %}
   {% if anti_cheat_on %}
     <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
@@ -87,6 +113,8 @@
         data-block-selection="{{ '1' if quiz.block_selection else '0' }}"
         data-violation-limit="{{ quiz.violation_limit or 0 }}"
         data-detect-devtools="{{ '1' if quiz.detect_devtools else '0' }}"
+        data-camera-proctor="{{ '1' if quiz.camera_proctor else '0' }}"
+        data-proctor-interval="{{ quiz.proctor_snapshot_interval or 30 }}"
         {% if quiz.block_selection %}style="user-select:none; -webkit-user-select:none;"{% endif %}>
     <div id="student-info" class="bg-white border border-slate-200 rounded-lg p-5 space-y-3">
       {% if quiz.require_name %}
@@ -509,6 +537,103 @@
           setTimeout(function() { dtReported = false; }, 30000);
         }
       }, 2000);
+    }
+
+    // ===== AI CAMERA PROCTORING =====
+    const cameraProctor = form.dataset.cameraProctor === '1';
+    const proctorInterval = parseInt(form.dataset.proctorInterval || '30', 10);
+    let proctorStream = null;
+    let proctorRunning = false;
+    let lastFaceCount = -1;
+    let consecutiveNoFace = 0;
+
+    function captureCanvas(video, w=240, h=180, quality=0.55) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(video, 0, 0, w, h);
+      return c.toDataURL('image/jpeg', quality);
+    }
+
+    function sendSnapshot(kind, dataUrl, notes) {
+      const b64 = (dataUrl || '').split(',')[1] || '';
+      fetch('/q/' + code + '/proctor', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({attempt_id: attemptId, kind: kind, image_b64: b64, notes: notes || ''}),
+        keepalive: true,
+      }).catch(()=>{});
+    }
+
+    async function startProctoring() {
+      if (!cameraProctor || proctorRunning) return;
+      const gate = document.getElementById('proctor-gate');
+      const status = document.getElementById('proctor-status');
+      const preview = document.getElementById('proctor-preview');
+      const video = document.getElementById('proctor-video');
+      try {
+        proctorStream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false });
+        video.srcObject = proctorStream;
+        preview.classList.remove('hidden');
+        if (gate) gate.classList.add('hidden');
+        proctorRunning = true;
+        // Load face-api.js from CDN + tiny detector weights
+        if (!window.faceapi) {
+          await new Promise((res, rej) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js';
+            s.onload = res; s.onerror = rej;
+            document.head.appendChild(s);
+          });
+        }
+        try {
+          await window.faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@latest/model/');
+        } catch (e) {
+          status && (status.textContent = 'Camera on. (AI model couldn\'t load — falling back to snapshot-only.)');
+        }
+        // Detection loop every 5s
+        const detect = async () => {
+          if (!proctorRunning) return;
+          let faceCount = -1;
+          try {
+            const det = await window.faceapi.detectAllFaces(
+              video,
+              new window.faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 })
+            );
+            faceCount = det.length;
+          } catch (_) { faceCount = -1; }
+          if (faceCount === 0) {
+            consecutiveNoFace++;
+            if (consecutiveNoFace === 2) {
+              sendSnapshot('no_face', captureCanvas(video), 'No face detected');
+              status && (status.textContent = '⚠ No face detected — please make sure you are visible.');
+            }
+          } else if (faceCount >= 2) {
+            consecutiveNoFace = 0;
+            sendSnapshot('multiple_faces', captureCanvas(video), `${faceCount} faces detected`);
+            status && (status.textContent = '⚠ Multiple faces detected.');
+          } else {
+            consecutiveNoFace = 0;
+            if (lastFaceCount !== 1 && status) status.textContent = '✓ Face confirmed. Proctoring active.';
+          }
+          lastFaceCount = faceCount;
+        };
+        setInterval(detect, 5000);
+        // Periodic evidence snapshot
+        if (proctorInterval > 0) {
+          setInterval(() => sendSnapshot('periodic', captureCanvas(video), ''), proctorInterval * 1000);
+        }
+        // First snapshot right away
+        setTimeout(() => sendSnapshot('periodic', captureCanvas(video), 'initial'), 2000);
+      } catch (e) {
+        status && (status.textContent = 'Could not access camera: ' + (e.message || e) + '. The exam can\'t start without it.');
+      }
+    }
+
+    // Trigger consent — hook into existing "Begin" button if present, else show consent immediately on load
+    if (cameraProctor) {
+      const consent = document.getElementById('proctor-consent');
+      if (consent) consent.addEventListener('click', startProctoring);
     }
 
     // Multi-tab detection — same student, same quiz open in 2 tabs of the same browser

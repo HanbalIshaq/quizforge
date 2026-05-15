@@ -316,6 +316,19 @@ def init_db() -> None:
         _ensure_column(conn, "quizzes", "detect_devtools", "INTEGER DEFAULT 0")
         _ensure_column(conn, "users", "plan", "TEXT DEFAULT 'free'")
         _ensure_column(conn, "users", "plan_expires_at", "INTEGER")
+        _ensure_column(conn, "quizzes", "camera_proctor", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "quizzes", "proctor_snapshot_interval", "INTEGER DEFAULT 30")
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS proctor_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                attempt_id INTEGER NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
+                captured_at INTEGER NOT NULL,
+                kind TEXT,
+                notes TEXT,
+                image_data TEXT
+            )"""
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_proctor_attempt ON proctor_snapshots(attempt_id)")
         # Question bank — reusable questions per teacher
         conn.execute(
             """CREATE TABLE IF NOT EXISTS question_bank (

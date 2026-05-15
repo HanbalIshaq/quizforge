@@ -956,6 +956,8 @@ _SETTING_TYPES = {
     "anti_paste": "bool", "anti_rightclick": "bool", "block_selection": "bool",
     "require_fullscreen": "bool", "detect_tab_switch": "bool",
     "detect_devtools": "bool",
+    "camera_proctor": "bool",
+    "proctor_snapshot_interval": "int",
 }
 
 
@@ -1548,11 +1550,15 @@ def attempt_detail(quiz_id, aid):
         violations = [dict(v) for v in conn.execute(
             "SELECT * FROM violations WHERE attempt_id=? ORDER BY created_at", (aid,)
         ).fetchall()]
+        snapshots = [dict(r) for r in conn.execute(
+            "SELECT id, captured_at, kind, notes FROM proctor_snapshots WHERE attempt_id=? ORDER BY captured_at",
+            (aid,),
+        ).fetchall()]
         return render_template(
             "admin/attempt_detail.html",
             quiz=dict(quiz), attempt=dict(attempt),
             questions=questions, answers=ans_by_qid,
-            violations=violations,
+            violations=violations, snapshots=snapshots,
         )
     finally:
         conn.close()
@@ -1848,6 +1854,72 @@ def take_quiz(code):
             partial_answers=partial_answers,
             prefill=prefill,
         )
+    finally:
+        conn.close()
+
+
+@app.route("/q/<code>/proctor", methods=["POST"])
+def quiz_save_snapshot(code):
+    """Save a camera snapshot for a proctored exam attempt.
+    Body: { attempt_id, kind: 'periodic'|'no_face'|'multiple_faces'|'looking_away', notes, image_b64 }"""
+    payload = request.get_json(force=True, silent=True) or {}
+    conn = db.get_conn()
+    try:
+        quiz = conn.execute("SELECT * FROM quizzes WHERE share_code=?", (code,)).fetchone()
+        if not quiz or not quiz["camera_proctor"]:
+            return jsonify({"ok": False}), 404
+        attempt_id = int(payload.get("attempt_id") or 0)
+        a = conn.execute(
+            "SELECT id FROM attempts WHERE id=? AND quiz_id=?", (attempt_id, quiz["id"])
+        ).fetchone()
+        if not a:
+            return jsonify({"ok": False, "error": "attempt not found"}), 400
+        kind = (payload.get("kind") or "periodic")[:32]
+        notes = (payload.get("notes") or "")[:200]
+        image_b64 = payload.get("image_b64") or ""
+        # Cap stored image size to 80 KB (already low-res JPEG client-side)
+        if len(image_b64) > 110000:
+            image_b64 = image_b64[:110000]
+        conn.execute(
+            "INSERT INTO proctor_snapshots(attempt_id, captured_at, kind, notes, image_data) VALUES(?,?,?,?,?)",
+            (attempt_id, db.now_ts(), kind, notes, image_b64),
+        )
+        # If it's a violation kind, also record in the violations table for the integrity badge
+        if kind in ("no_face", "multiple_faces", "looking_away"):
+            conn.execute(
+                "INSERT INTO violations(attempt_id, type, details, created_at) VALUES(?,?,?,?)",
+                (attempt_id, kind, notes, db.now_ts()),
+            )
+        conn.commit()
+        return jsonify({"ok": True})
+    finally:
+        conn.close()
+
+
+@app.route("/admin/snapshots/<int:sid>.jpg")
+@login_required
+def admin_snapshot_image(sid):
+    """Serve a proctoring snapshot as JPEG; only the quiz owner can view."""
+    import base64
+    conn = db.get_conn()
+    try:
+        row = conn.execute(
+            """SELECT s.image_data, q.user_id FROM proctor_snapshots s
+               JOIN attempts a ON a.id = s.attempt_id
+               JOIN quizzes q ON q.id = a.quiz_id
+               WHERE s.id=?""",
+            (sid,),
+        ).fetchone()
+        if not row or row["user_id"] != session["uid"]:
+            abort(404)
+        b64 = row["image_data"] or ""
+        if b64.startswith("data:image"):
+            b64 = b64.split(",", 1)[-1]
+        try:
+            raw = base64.b64decode(b64)
+        except Exception:
+            abort(404)
+        return Response(raw, mimetype="image/jpeg")
     finally:
         conn.close()
 
