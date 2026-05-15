@@ -22,6 +22,28 @@
   </div>
 </div>
 
+{# ───── Demo content buttons (only show if user has no quizzes yet, or anytime — keep visible) ───── #}
+<div class="bg-gradient-to-r from-brand-50 to-purple-50 border border-brand-200 rounded-lg p-4 mb-6 flex flex-wrap items-center gap-3">
+  <div class="flex-1 min-w-0">
+    <p class="font-semibold text-brand-900">🎁 Try a demo — pre-filled with every field type</p>
+    <p class="text-xs text-slate-600 mt-1">One click creates a working form / exam / poll you can explore, edit and share. Great for learning every option.</p>
+  </div>
+  <form method="post" action="{{ url_for('quiz_demo_create') }}" class="inline">
+    <input type="hidden" name="kind" value="form" />
+    <button class="px-3 py-2 bg-purple-600 text-white rounded text-sm hover:bg-purple-700">📝 Demo Form</button>
+  </form>
+  <form method="post" action="{{ url_for('quiz_demo_create') }}" class="inline">
+    <input type="hidden" name="kind" value="exam" />
+    <button class="px-3 py-2 bg-brand-600 text-white rounded text-sm hover:bg-brand-700">📋 Demo Exam</button>
+  </form>
+  <form method="post" action="{{ url_for('quiz_demo_create') }}" class="inline">
+    <input type="hidden" name="kind" value="poll" />
+    <button class="px-3 py-2 bg-amber-600 text-white rounded text-sm hover:bg-amber-700">📊 Demo Poll</button>
+  </form>
+  <a href="{{ url_for('template_download_json') }}"
+     class="px-3 py-2 bg-white border border-slate-300 rounded text-sm hover:bg-slate-100" download>⬇ Download JSON template</a>
+</div>
+
 {# ───── 5 BIG content-type cards ───── #}
 <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
   {# Exams / Quizzes #}

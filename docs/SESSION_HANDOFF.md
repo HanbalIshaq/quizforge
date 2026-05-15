@@ -345,6 +345,9 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-16 — Demo content + JSON import template
+One-click demo content creators on the dashboard: **📝 Demo Form** / **📋 Demo Exam** / **📊 Demo Poll** — each builds a fully-populated quiz with every supported field type as example questions. **⬇ Download JSON template** link gets the canonical bulk-import format. Bulk-import section now also accepts **.json** files / paste — supports every field type including the complex ones (matching/ordering/drag-drop/hotspot/address/signature/etc.). `demo_content.py` module holds all three templates. ~185 features.
+
 ### 2026-05-16 — Handoff document created
 Saved this doc. ~180 features total.
 

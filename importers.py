@@ -205,6 +205,41 @@ def parse_csv(text: str) -> list[dict]:
     return out
 
 
+def parse_json(text: str) -> list[dict]:
+    """Parse a JSON payload — either a flat list of question dicts,
+    or one of the templates from demo_content (object with `.questions`)."""
+    data = json.loads(text)
+    # Could be a dict mapping kind -> template, or a single template, or a flat list
+    if isinstance(data, dict):
+        if "questions" in data and isinstance(data["questions"], list):
+            data = data["questions"]
+        else:
+            # If multiple templates passed, flatten all their questions
+            collected = []
+            for v in data.values():
+                if isinstance(v, dict) and "questions" in v:
+                    collected.extend(v["questions"])
+            data = collected
+    if not isinstance(data, list):
+        return []
+    out = []
+    for q in data:
+        if not isinstance(q, dict) or not q.get("text"):
+            continue
+        out.append({
+            "type": q.get("type") or "mcq_single",
+            "text": q["text"],
+            "options": q.get("options") or [],
+            "correct_answers": q.get("correct_answers") or [],
+            "points": int(q.get("points") or 1),
+            "explanation": q.get("explanation") or "",
+            "time_limit_seconds": int(q.get("time_limit_seconds") or 0),
+            "image_url": q.get("image_url"),
+            "is_required": 0 if q.get("is_required") is False else 1,
+        })
+    return out
+
+
 def parse_docx(path: str) -> list[dict]:
     if docx is None:
         raise RuntimeError("python-docx is not installed")

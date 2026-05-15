@@ -11,6 +11,7 @@ from functools import wraps
 import bcrypt
 import ai_generator
 import certificates
+import demo_content
 import email_send
 from dotenv import load_dotenv
 from flask import (
@@ -1167,6 +1168,76 @@ def quiz_remove_anonymous(quiz_id):
     return redirect(url_for("quiz_results", quiz_id=quiz_id))
 
 
+@app.route("/admin/quizzes/demo", methods=["POST"])
+@login_required
+def quiz_demo_create():
+    """Create a fully-populated demo quiz of the requested kind (form/exam/poll).
+    Quick way for new users to see every field type in action."""
+    kind = (request.form.get("kind") or "form").lower()
+    template = demo_content.ALL_TEMPLATES.get(kind, demo_content.FORM_TEMPLATE)
+    plan = user_plan(session["uid"])
+    if plan["max_quizzes"]:
+        usage = user_usage(session["uid"])
+        if usage["quizzes"] >= plan["max_quizzes"]:
+            flash(
+                f"You've reached your plan limit of {plan['max_quizzes']} quizzes on the {plan['label']} plan.",
+                "error",
+            )
+            return redirect(url_for("admin_dashboard"))
+    code = db.unique_code("quizzes", "share_code", 7)
+    conn = db.get_conn()
+    try:
+        cur = conn.execute(
+            """INSERT INTO quizzes(user_id, title, description, share_code, kind, created_at, updated_at,
+                                    require_name, require_email, show_correct_answers, pass_mark, paginated)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                session["uid"], template["title"], template.get("description", ""),
+                code, template["kind"], db.now_ts(), db.now_ts(),
+                1, 1 if template["kind"] != "survey" else 0,
+                1 if template.get("show_correct_answers") else 0,
+                int(template.get("pass_mark") or 0),
+                1 if template["kind"] == "form" else 0,
+            ),
+        )
+        quiz_id = cur.lastrowid
+        for pos, q in enumerate(template["questions"]):
+            conn.execute(
+                """INSERT INTO questions(quiz_id, type, text, options, correct_answers, points, position,
+                                          explanation, time_limit_seconds, image_url, is_required)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    quiz_id, q["type"], q["text"],
+                    json.dumps(q.get("options") or []),
+                    json.dumps(q.get("correct_answers") or []),
+                    int(q.get("points") or 1),
+                    pos,
+                    q.get("explanation") or "",
+                    int(q.get("time_limit_seconds") or 0),
+                    q.get("image_url"),
+                    0 if q.get("is_required") is False else 1,
+                ),
+            )
+        conn.commit()
+        flash(f"Demo {kind} created with {len(template['questions'])} fields. Edit, duplicate, or share it as-is.", "success")
+        return redirect(url_for("quiz_edit", quiz_id=quiz_id))
+    finally:
+        conn.close()
+
+
+@app.route("/admin/templates/all-types.json")
+@login_required
+def template_download_json():
+    """Downloadable JSON template showing every supported field type with example data.
+    Drop this into the JSON bulk-import box in the quiz editor to clone the demo content."""
+    payload = json.dumps(demo_content.ALL_TEMPLATES, indent=2, ensure_ascii=False)
+    return Response(
+        payload,
+        mimetype="application/json",
+        headers={"Content-Disposition": "attachment; filename=quizforge-all-field-types-template.json"},
+    )
+
+
 @app.route("/admin/quizzes/<int:quiz_id>/dedupe-submissions", methods=["POST"])
 @login_required
 def quiz_dedupe_submissions(quiz_id):
@@ -1259,12 +1330,16 @@ def quiz_import(quiz_id):
                 questions = importers.parse_csv(file.read().decode("utf-8", errors="replace"))
             elif ext == "txt":
                 questions = importers.parse_text(file.read().decode("utf-8", errors="replace"))
+            elif ext == "json":
+                questions = importers.parse_json(file.read().decode("utf-8", errors="replace"))
             else:
-                flash("Unsupported file type. Use .docx, .csv, or .txt", "error")
+                flash("Unsupported file type. Use .docx, .csv, .txt or .json", "error")
                 return redirect(url_for("quiz_edit", quiz_id=quiz_id))
         elif raw_text.strip():
             if fmt == "csv":
                 questions = importers.parse_csv(raw_text)
+            elif fmt == "json":
+                questions = importers.parse_json(raw_text)
             else:
                 questions = importers.parse_text(raw_text)
         if not questions:
@@ -1276,8 +1351,9 @@ def quiz_import(quiz_id):
         start_pos = pos_row["p"]
         for i, q in enumerate(questions):
             conn.execute(
-                """INSERT INTO questions(quiz_id, type, text, options, correct_answers, points, position, explanation)
-                   VALUES(?,?,?,?,?,?,?,?)""",
+                """INSERT INTO questions(quiz_id, type, text, options, correct_answers, points, position,
+                                          explanation, time_limit_seconds, image_url, is_required)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     quiz_id, q["type"], q["text"],
                     json.dumps(q.get("options") or []),
@@ -1285,6 +1361,9 @@ def quiz_import(quiz_id):
                     int(q.get("points") or 1),
                     start_pos + i,
                     q.get("explanation") or "",
+                    int(q.get("time_limit_seconds") or 0),
+                    q.get("image_url"),
+                    0 if q.get("is_required") == 0 else 1,
                 ),
             )
         conn.execute("UPDATE quizzes SET updated_at=? WHERE id=?", (db.now_ts(), quiz_id))
