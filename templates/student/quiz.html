@@ -65,28 +65,50 @@
   {% endif %}
 
   {% if quiz.camera_proctor %}
-    <div id="proctor-gate" class="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4 text-sm">
-      <div class="flex items-start gap-3">
-        <div class="text-2xl">📷</div>
-        <div class="flex-1">
-          <p class="font-semibold text-purple-900">AI Camera Proctoring is active for this exam</p>
-          <ul class="text-xs text-purple-900 list-disc pl-5 mt-1 space-y-0.5">
-            <li>The system uses your webcam to confirm you are present and alone during the exam.</li>
-            <li>Hijab / headscarf is supported — only the visible face is tracked, no hair detection.</li>
-            <li>Snapshots are stored only on the exam server and only visible to the quiz administrator.</li>
-            <li>You'll see a small preview of your camera in the corner so you can verify alignment.</li>
-          </ul>
-          <button type="button" id="proctor-consent"
-                  class="mt-3 px-3 py-2 bg-purple-700 text-white rounded text-sm hover:bg-purple-800">
-            I understand — start camera &amp; begin exam
-          </button>
-          <p class="text-xs text-purple-700 mt-2" id="proctor-status">Camera not started yet.</p>
+    {# Full-screen prerequisite gate: must establish face presence BEFORE quiz content loads #}
+    <div id="proctor-gate" class="fixed inset-0 z-50 bg-slate-900/95 flex items-center justify-center p-4 overflow-auto">
+      <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-12 h-12 rounded-full bg-purple-100 text-purple-700 grid place-items-center text-2xl">📷</div>
+          <div>
+            <h2 class="text-xl font-bold">Camera check required</h2>
+            <p class="text-sm text-slate-500">This exam uses AI camera proctoring. You must enable your camera and have a clear face capture before the exam will start.</p>
+          </div>
         </div>
+
+        <ol class="text-sm text-slate-700 space-y-1 mb-4 pl-5 list-decimal">
+          <li>Sit in <b>good lighting</b> — face the light source, not a window behind you.</li>
+          <li>Position your face <b>inside the oval</b> below — eyes roughly at the middle.</li>
+          <li>Look <b>straight at the screen</b>. Don't tilt your head more than ~25°.</li>
+          <li>Hijab / headscarf is fine — only your face is tracked, not your hair.</li>
+          <li>The system will check periodically. Looking away too long counts as a violation.</li>
+        </ol>
+
+        <div class="relative w-full max-w-md mx-auto mb-3 rounded-lg overflow-hidden bg-slate-900" style="aspect-ratio: 4/3;">
+          <video id="proctor-video" autoplay muted playsinline class="absolute inset-0 w-full h-full object-cover"></video>
+          {# Centering oval guide so user knows where to put their face #}
+          <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
+            <div id="proctor-oval" class="border-4 border-dashed border-white/70 rounded-full" style="width: 55%; aspect-ratio: 3/4;"></div>
+          </div>
+          <p id="proctor-status" class="absolute bottom-2 left-2 right-2 text-center text-white text-xs bg-black/60 rounded px-2 py-1">Click <b>Allow camera</b> below.</p>
+        </div>
+
+        <div class="flex flex-wrap gap-2 items-center justify-between">
+          <button type="button" id="proctor-allow"
+                  class="px-4 py-2 bg-purple-700 text-white rounded hover:bg-purple-800">📷 Allow camera</button>
+          <button type="button" id="proctor-continue" disabled
+                  class="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">
+            Face confirmed — begin exam &rarr;
+          </button>
+        </div>
+        <p class="text-xs text-slate-500 mt-3">Snapshots are stored on this exam's server, only your administrator can view them. They are not uploaded anywhere else.</p>
       </div>
     </div>
+
+    {# Small persistent preview pinned bottom-right during the exam #}
     <div id="proctor-preview" class="hidden fixed bottom-4 right-4 z-40 bg-black rounded-lg shadow-lg overflow-hidden border-2 border-purple-500">
-      <video id="proctor-video" autoplay muted playsinline class="w-32 h-24 object-cover"></video>
-      <div class="text-center bg-purple-700 text-white text-xs py-0.5">🔴 Proctoring</div>
+      <video id="proctor-mini-video" autoplay muted playsinline class="w-32 h-24 object-cover"></video>
+      <div id="proctor-mini-status" class="text-center bg-purple-700 text-white text-xs py-0.5">🔴 Proctoring</div>
     </div>
   {% endif %}
 
@@ -920,15 +942,20 @@
       });
     });
 
-    // ===== AI CAMERA PROCTORING =====
+    // ===== AI CAMERA PROCTORING (2-stage: setup gate → live monitoring) =====
     const cameraProctor = form.dataset.cameraProctor === '1';
     const proctorInterval = parseInt(form.dataset.proctorInterval || '30', 10);
     let proctorStream = null;
     let proctorRunning = false;
-    let lastFaceCount = -1;
     let consecutiveNoFace = 0;
+    let consecutiveAway = 0;
+    let setupVideo = null;     // bigger video during setup gate
+    let miniVideo = null;      // small persistent video during exam
+    let setupStatus = null;
+    let miniStatus = null;
 
-    function captureCanvas(video, w=240, h=180, quality=0.55) {
+    function captureCanvas(video, w=320, h=240, quality=0.55) {
+      if (!video || !video.videoWidth) return '';
       const c = document.createElement('canvas');
       c.width = w; c.height = h;
       const ctx = c.getContext('2d');
@@ -938,6 +965,7 @@
 
     function sendSnapshot(kind, dataUrl, notes) {
       const b64 = (dataUrl || '').split(',')[1] || '';
+      // Always send — even if image is empty, the violation row is still recorded server-side
       fetch('/q/' + code + '/proctor', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -946,19 +974,26 @@
       }).catch(()=>{});
     }
 
-    async function startProctoring() {
-      if (!cameraProctor || proctorRunning) return;
-      const gate = document.getElementById('proctor-gate');
-      const status = document.getElementById('proctor-status');
-      const preview = document.getElementById('proctor-preview');
-      const video = document.getElementById('proctor-video');
+    // Approximate yaw from 68-landmark positions:
+    // nose tip = point 30; jaw centerline midpoint = (point 8); face width via points 0 & 16
+    function estimateYaw(landmarks) {
       try {
-        proctorStream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false });
-        video.srcObject = proctorStream;
-        preview.classList.remove('hidden');
-        if (gate) gate.classList.add('hidden');
-        proctorRunning = true;
-        // Load face-api.js from CDN + tiny detector weights
+        const pts = landmarks.positions || landmarks._positions;
+        if (!pts || pts.length < 17) return 0;
+        const nose = pts[30];
+        const leftCheek = pts[0];
+        const rightCheek = pts[16];
+        const faceCenterX = (leftCheek.x + rightCheek.x) / 2;
+        const faceWidth = Math.max(1, rightCheek.x - leftCheek.x);
+        const offset = (nose.x - faceCenterX) / faceWidth;  // -0.5 (looking right) … +0.5 (looking left)
+        return offset;
+      } catch (_) { return 0; }
+    }
+
+    async function loadFaceApi(status) {
+      if (window.faceapi && window.faceapi.nets.faceLandmark68Net.isLoaded) return true;
+      status && (status.textContent = 'Loading face-detection model…');
+      try {
         if (!window.faceapi) {
           await new Promise((res, rej) => {
             const s = document.createElement('script');
@@ -967,54 +1002,138 @@
             document.head.appendChild(s);
           });
         }
-        try {
-          await window.faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@latest/model/');
-        } catch (e) {
-          status && (status.textContent = 'Camera on. (AI model couldn\'t load — falling back to snapshot-only.)');
-        }
-        // Detection loop every 5s
-        const detect = async () => {
-          if (!proctorRunning) return;
-          let faceCount = -1;
-          try {
-            const det = await window.faceapi.detectAllFaces(
-              video,
-              new window.faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 })
-            );
-            faceCount = det.length;
-          } catch (_) { faceCount = -1; }
-          if (faceCount === 0) {
-            consecutiveNoFace++;
-            if (consecutiveNoFace === 2) {
-              sendSnapshot('no_face', captureCanvas(video), 'No face detected');
-              status && (status.textContent = '⚠ No face detected — please make sure you are visible.');
-            }
-          } else if (faceCount >= 2) {
-            consecutiveNoFace = 0;
-            sendSnapshot('multiple_faces', captureCanvas(video), `${faceCount} faces detected`);
-            status && (status.textContent = '⚠ Multiple faces detected.');
-          } else {
-            consecutiveNoFace = 0;
-            if (lastFaceCount !== 1 && status) status.textContent = '✓ Face confirmed. Proctoring active.';
-          }
-          lastFaceCount = faceCount;
-        };
-        setInterval(detect, 5000);
-        // Periodic evidence snapshot
-        if (proctorInterval > 0) {
-          setInterval(() => sendSnapshot('periodic', captureCanvas(video), ''), proctorInterval * 1000);
-        }
-        // First snapshot right away
-        setTimeout(() => sendSnapshot('periodic', captureCanvas(video), 'initial'), 2000);
+        const MODELS = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@latest/model/';
+        await window.faceapi.nets.tinyFaceDetector.loadFromUri(MODELS);
+        await window.faceapi.nets.faceLandmark68Net.loadFromUri(MODELS);
+        return true;
       } catch (e) {
-        status && (status.textContent = 'Could not access camera: ' + (e.message || e) + '. The exam can\'t start without it.');
+        status && (status.textContent = '⚠ Face-detection model failed to load. Snapshots will still be recorded.');
+        return false;
       }
     }
 
-    // Trigger consent — hook into existing "Begin" button if present, else show consent immediately on load
     if (cameraProctor) {
-      const consent = document.getElementById('proctor-consent');
-      if (consent) consent.addEventListener('click', startProctoring);
+      setupVideo = document.getElementById('proctor-video');
+      setupStatus = document.getElementById('proctor-status');
+      const allowBtn = document.getElementById('proctor-allow');
+      const continueBtn = document.getElementById('proctor-continue');
+      const gate = document.getElementById('proctor-gate');
+      let aligned = false;
+      let stableSec = 0;
+
+      allowBtn.addEventListener('click', async () => {
+        try {
+          proctorStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 480, height: 360, facingMode: 'user' },
+            audio: false,
+          });
+          setupVideo.srcObject = proctorStream;
+          allowBtn.disabled = true;
+          setupStatus.innerHTML = '📷 Camera on. Position your face in the oval…';
+          const ok = await loadFaceApi(setupStatus);
+          // Whether model loaded or not, take a baseline snapshot so admin always sees the student
+          setTimeout(() => sendSnapshot('periodic', captureCanvas(setupVideo), 'baseline at start'), 1500);
+
+          // Setup detection loop: confirm 1 face for 3 consecutive checks before enabling Continue
+          const setupTick = setInterval(async () => {
+            if (!ok) {
+              // Without the model we can't confirm a face — let user continue after 4s
+              aligned = true;
+              continueBtn.disabled = false;
+              setupStatus.innerHTML = '✓ Camera active (face-detection model not loaded — manual check by admin).';
+              clearInterval(setupTick);
+              return;
+            }
+            try {
+              const detections = await window.faceapi
+                .detectAllFaces(setupVideo, new window.faceapi.TinyFaceDetectorOptions({inputSize: 224, scoreThreshold: 0.3}))
+                .withFaceLandmarks(true);
+              if (detections.length === 1) {
+                const yaw = estimateYaw(detections[0].landmarks);
+                if (Math.abs(yaw) < 0.12) {
+                  stableSec++;
+                  setupStatus.innerHTML = `✓ Face detected — hold still… (${stableSec}/3)`;
+                  if (stableSec >= 3) {
+                    aligned = true;
+                    continueBtn.disabled = false;
+                    setupStatus.innerHTML = '✅ Face confirmed. Click <b>Begin exam</b>.';
+                    clearInterval(setupTick);
+                  }
+                } else {
+                  stableSec = 0;
+                  setupStatus.innerHTML = '↔ Face turned too much — please look straight at the screen.';
+                }
+              } else if (detections.length === 0) {
+                stableSec = 0;
+                setupStatus.innerHTML = '👤 No face detected — sit closer / improve lighting / center your face in the oval.';
+              } else {
+                stableSec = 0;
+                setupStatus.innerHTML = `⚠ ${detections.length} faces detected — only you should be visible.`;
+              }
+            } catch (_) {}
+          }, 1000);
+        } catch (e) {
+          setupStatus.textContent = '✗ Camera blocked: ' + (e.message || e) + '. Allow camera in your browser and reload.';
+        }
+      });
+
+      continueBtn.addEventListener('click', () => {
+        if (!aligned) return;
+        // Move stream to the mini-preview, hide the gate, start monitoring
+        miniVideo = document.getElementById('proctor-mini-video');
+        miniStatus = document.getElementById('proctor-mini-status');
+        miniVideo.srcObject = proctorStream;
+        document.getElementById('proctor-preview').classList.remove('hidden');
+        gate.classList.add('hidden');
+        proctorRunning = true;
+        sendSnapshot('periodic', captureCanvas(miniVideo), 'entered exam');
+
+        // Live monitoring: every 4 seconds, run detect + log violations
+        const monitor = async () => {
+          if (!proctorRunning) return;
+          if (!window.faceapi) return;
+          let detections = [];
+          try {
+            detections = await window.faceapi
+              .detectAllFaces(miniVideo, new window.faceapi.TinyFaceDetectorOptions({inputSize: 224, scoreThreshold: 0.3}))
+              .withFaceLandmarks(true);
+          } catch (_) {}
+          if (detections.length === 0) {
+            consecutiveNoFace++;
+            if (consecutiveNoFace === 2) {
+              sendSnapshot('no_face', captureCanvas(miniVideo), 'no face for 8s');
+              miniStatus.textContent = '⚠ No face — please return';
+              miniStatus.className = 'text-center bg-red-700 text-white text-xs py-0.5';
+            }
+          } else if (detections.length >= 2) {
+            consecutiveNoFace = 0;
+            sendSnapshot('multiple_faces', captureCanvas(miniVideo), detections.length + ' faces');
+            miniStatus.textContent = '⚠ Multiple faces';
+            miniStatus.className = 'text-center bg-red-700 text-white text-xs py-0.5';
+          } else {
+            consecutiveNoFace = 0;
+            const yaw = estimateYaw(detections[0].landmarks);
+            const lookingAway = Math.abs(yaw) > 0.22;  // ~25–30° head turn
+            if (lookingAway) {
+              consecutiveAway++;
+              if (consecutiveAway === 2) {  // 8 seconds of looking away
+                sendSnapshot('looking_away', captureCanvas(miniVideo), 'yaw=' + yaw.toFixed(2));
+                miniStatus.textContent = '⚠ Look at the screen';
+                miniStatus.className = 'text-center bg-amber-600 text-white text-xs py-0.5';
+              }
+            } else {
+              consecutiveAway = 0;
+              miniStatus.textContent = '🔴 Proctoring';
+              miniStatus.className = 'text-center bg-purple-700 text-white text-xs py-0.5';
+            }
+          }
+        };
+        setInterval(monitor, 4000);
+        // Periodic evidence snapshot
+        if (proctorInterval > 0) {
+          setInterval(() => sendSnapshot('periodic', captureCanvas(miniVideo), ''), proctorInterval * 1000);
+        }
+      });
     }
 
     // Multi-tab detection — same student, same quiz open in 2 tabs of the same browser

@@ -345,6 +345,9 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-16 — Camera proctoring v2 (full-page gate, face-angle detection)
+Replaced the inline consent banner with a **full-page modal gate** that blocks the entire quiz until camera is enabled AND a face is stably detected for 3 consecutive seconds. Setup instructions on the gate (lighting / oval alignment / no head tilt). Loads `tinyFaceDetector` + `faceLandmark68Net` from CDN. New `estimateYaw()` computes head-turn from nose vs face-center offset; >25° for 8s logs a `looking_away` violation with snapshot. Always captures baseline snapshot at start regardless of model load state, so admin gallery always populated. Mini preview pinned bottom-right during exam with live status pill.
+
 ### 2026-05-16 — Demo content + JSON import template
 One-click demo content creators on the dashboard: **📝 Demo Form** / **📋 Demo Exam** / **📊 Demo Poll** — each builds a fully-populated quiz with every supported field type as example questions. **⬇ Download JSON template** link gets the canonical bulk-import format. Bulk-import section now also accepts **.json** files / paste — supports every field type including the complex ones (matching/ordering/drag-drop/hotspot/address/signature/etc.). `demo_content.py` module holds all three templates. ~185 features.
 
