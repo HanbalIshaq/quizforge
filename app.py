@@ -9,6 +9,7 @@ from datetime import datetime
 from functools import wraps
 
 import bcrypt
+import certificates
 from dotenv import load_dotenv
 from flask import (
     Flask, abort, flash, g, jsonify, redirect, render_template, request,
@@ -150,15 +151,83 @@ def features_all() -> dict:
     return {k: feature_enabled(k) for k in FEATURE_DEFAULTS}
 
 
+# ===== PLANS & USAGE LIMITS =====
+# Each plan: label + monthly response cap + max quizzes + allowed features
+PLANS = {
+    "free":     {"tier": "free",     "label": "Free",     "attempts_month": 50,   "max_quizzes": 3,    "allow_ai": False, "allow_white_label": False, "allow_certificates": True,  "price": "$0"},
+    "pro":      {"tier": "pro",      "label": "Pro",      "attempts_month": 2000, "max_quizzes": 50,   "allow_ai": True,  "allow_white_label": False, "allow_certificates": True,  "price": "$19/mo"},
+    "business": {"tier": "business", "label": "Business", "attempts_month": 10000,"max_quizzes": 200,  "allow_ai": True,  "allow_white_label": True,  "allow_certificates": True,  "price": "$49/mo"},
+    "enterprise": {"tier": "enterprise","label": "Enterprise","attempts_month": 0, "max_quizzes": 0,  "allow_ai": True,  "allow_white_label": True,  "allow_certificates": True,  "price": "Custom"},
+}
+
+
+def user_plan(user_id: int) -> dict:
+    """Return the plan dict for the given user (super-admins always get enterprise)."""
+    conn = db.get_conn()
+    try:
+        row = conn.execute(
+            "SELECT plan, is_super_admin FROM users WHERE id=?", (user_id,)
+        ).fetchone()
+        if not row:
+            return PLANS["free"]
+        if row["is_super_admin"]:
+            return PLANS["enterprise"]
+        plan_key = (row["plan"] or "free").lower()
+        return PLANS.get(plan_key, PLANS["free"])
+    finally:
+        conn.close()
+
+
+def user_usage(user_id: int) -> dict:
+    """Current-period usage for limit enforcement."""
+    conn = db.get_conn()
+    try:
+        # Last 30 days of submitted attempts on quizzes owned by user
+        cutoff = db.now_ts() - 30 * 86400
+        atts = conn.execute(
+            """SELECT COUNT(*) AS c FROM attempts a
+               JOIN quizzes q ON q.id = a.quiz_id
+               WHERE q.user_id = ? AND a.submitted_at IS NOT NULL AND a.submitted_at >= ?""",
+            (user_id, cutoff),
+        ).fetchone()["c"]
+        quizzes = conn.execute(
+            "SELECT COUNT(*) AS c FROM quizzes WHERE user_id=?", (user_id,)
+        ).fetchone()["c"]
+        return {"attempts_month": atts, "quizzes": quizzes}
+    finally:
+        conn.close()
+
+
+def quiz_kind_counts(user_id: int) -> dict:
+    """Counts of quizzes by kind, for the dashboard cards."""
+    conn = db.get_conn()
+    try:
+        out = {"all": 0, "exam": 0, "poll": 0, "survey": 0}
+        for r in conn.execute(
+            "SELECT kind, COUNT(*) AS c FROM quizzes WHERE user_id=? GROUP BY kind",
+            (user_id,),
+        ).fetchall():
+            out["all"] += r["c"]
+            out[r["kind"]] = r["c"]
+        return out
+    finally:
+        conn.close()
+
+
 @app.context_processor
 def inject_globals():
-    return {
-        "user": current_user(),
+    u = current_user()
+    ctx = {
+        "user": u,
         "fmt_ts": fmt_ts,
         "QUESTION_TYPES": grading.QUESTION_TYPES,
         "asset_v": ASSET_VERSION,
         "features": features_all(),
     }
+    if u:
+        ctx["plan"] = user_plan(u["id"])
+        ctx["usage"] = user_usage(u["id"])
+    return ctx
 
 
 # ---------- auth ----------
@@ -493,6 +562,24 @@ def site_users():
         conn.close()
 
 
+@app.route("/admin/site/users/<int:user_id>/plan", methods=["POST"])
+@login_required
+@super_admin_required
+def site_user_plan(user_id):
+    new_plan = (request.form.get("plan") or "").strip().lower()
+    if new_plan not in PLANS:
+        flash("Unknown plan.", "error")
+        return redirect(url_for("site_users"))
+    conn = db.get_conn()
+    try:
+        conn.execute("UPDATE users SET plan=? WHERE id=?", (new_plan, user_id))
+        conn.commit()
+        flash(f"Plan updated to {PLANS[new_plan]['label']}.", "success")
+    finally:
+        conn.close()
+    return redirect(url_for("site_users"))
+
+
 @app.route("/admin/site/users/<int:user_id>/<string:action>", methods=["POST"])
 @login_required
 @super_admin_required
@@ -552,7 +639,8 @@ def admin_dashboard():
                 (session["uid"],),
             ).fetchall()
         quizzes = [dict(r) for r in rows]
-        return render_template("admin/dashboard.html", quizzes=quizzes)
+        counts = quiz_kind_counts(session["uid"])
+        return render_template("admin/dashboard.html", quizzes=quizzes, counts=counts)
     finally:
         conn.close()
 
@@ -560,6 +648,17 @@ def admin_dashboard():
 @app.route("/admin/quizzes/new", methods=["POST"])
 @login_required
 def quiz_new():
+    # Plan-level quiz count limit
+    plan = user_plan(session["uid"])
+    if plan["max_quizzes"]:
+        usage = user_usage(session["uid"])
+        if usage["quizzes"] >= plan["max_quizzes"]:
+            flash(
+                f"You've reached your plan limit of {plan['max_quizzes']} quizzes on the {plan['label']} plan. "
+                "Delete an old quiz or upgrade to create more.",
+                "error",
+            )
+            return redirect(url_for("admin_dashboard"))
     title = (request.form.get("title") or "Untitled quiz").strip()
     kind = (request.form.get("kind") or "exam").strip()
     if kind not in ("exam", "poll", "survey"):
@@ -1607,6 +1706,26 @@ def take_quiz(code):
             # Clear the draft cookie so a NEW attempt starts a new draft
             session.pop(f"draft_{quiz['id']}", None)
             conn.commit()
+            # Auto-issue certificate on pass (if feature enabled and exam has a pass mark)
+            if (feature_enabled("feature_certificates")
+                    and is_scored
+                    and quiz["pass_mark"]
+                    and (pct or 0) >= quiz["pass_mark"]
+                    and not needs_grading):
+                # Avoid duplicate certificates for the same attempt
+                existing_cert = conn.execute(
+                    "SELECT id FROM certificates WHERE attempt_id=?", (attempt_id,)
+                ).fetchone()
+                if not existing_cert:
+                    serial = certificates.make_serial()
+                    conn.execute(
+                        """INSERT INTO certificates(attempt_id, quiz_id, serial, recipient_name,
+                                                    score, max_score, percentage, issued_at)
+                           VALUES(?,?,?,?,?,?,?,?)""",
+                        (attempt_id, quiz["id"], serial, student_name,
+                         float(total_pts), float(max_pts), float(pct), db.now_ts()),
+                    )
+                    conn.commit()
             return redirect(url_for("quiz_result", code=code, attempt_id=attempt_id))
         # GET — create / reuse a draft, load partial answers, randomize for this attempt
         attempt_id = _get_or_create_draft(conn, dict(quiz))
@@ -1667,6 +1786,61 @@ def quiz_log_violation(code):
         limit = quiz["violation_limit"] or 0
         should_submit = bool(limit) and count >= limit
         return jsonify({"ok": True, "count": count, "limit": limit, "auto_submit": should_submit})
+    finally:
+        conn.close()
+
+
+@app.route("/cert/<serial>.pdf")
+def cert_download(serial):
+    """Download the certificate PDF for a given serial. Public — anyone with the serial can download."""
+    conn = db.get_conn()
+    try:
+        row = conn.execute(
+            """SELECT c.*, q.title AS quiz_title
+               FROM certificates c JOIN quizzes q ON q.id = c.quiz_id
+               WHERE c.serial=?""",
+            (serial,),
+        ).fetchone()
+        if not row:
+            abort(404)
+        verify_url = url_for("cert_verify", serial=serial, _external=True)
+        pdf = certificates.render_certificate_pdf(
+            recipient_name=row["recipient_name"] or "Recipient",
+            quiz_title=row["quiz_title"],
+            score=float(row["score"] or 0),
+            max_score=float(row["max_score"] or 0),
+            percentage=float(row["percentage"] or 0),
+            serial=row["serial"],
+            issued_at_str=datetime.fromtimestamp(int(row["issued_at"])).strftime("%d %b %Y"),
+            verify_url=verify_url,
+        )
+        safe = row["recipient_name"] or "certificate"
+        safe = "".join(c if c.isalnum() else "_" for c in safe)[:40]
+        return Response(
+            pdf,
+            mimetype="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={safe}_certificate_{serial}.pdf"},
+        )
+    finally:
+        conn.close()
+
+
+@app.route("/verify/<serial>")
+def cert_verify(serial):
+    """Public verification page for a certificate serial."""
+    conn = db.get_conn()
+    try:
+        row = conn.execute(
+            """SELECT c.*, q.title AS quiz_title, q.share_code AS share_code
+               FROM certificates c JOIN quizzes q ON q.id = c.quiz_id
+               WHERE c.serial=?""",
+            (serial,),
+        ).fetchone()
+        return render_template(
+            "cert_verify.html",
+            cert=dict(row) if row else None,
+            issued_at_str=(datetime.fromtimestamp(int(row["issued_at"])).strftime("%d %b %Y") if row else None),
+        )
     finally:
         conn.close()
 
@@ -1789,10 +1963,15 @@ def quiz_result(code, attempt_id):
                 a["value"] = json.loads(a["answer"] or "null")
             except Exception:
                 a["value"] = a["answer"]
+        cert_row = conn.execute(
+            "SELECT serial FROM certificates WHERE attempt_id=?", (attempt_id,)
+        ).fetchone()
+        cert_serial = cert_row["serial"] if cert_row else None
         return render_template(
             "student/results.html",
             quiz=dict(quiz), attempt=dict(attempt),
             questions=questions, answers=ans,
+            cert_serial=cert_serial,
         )
     finally:
         conn.close()

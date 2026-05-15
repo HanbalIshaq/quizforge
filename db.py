@@ -314,6 +314,21 @@ def init_db() -> None:
         _ensure_column(conn, "users", "locked_until", "INTEGER")
         _ensure_column(conn, "quizzes", "ip_allowlist", "TEXT")
         _ensure_column(conn, "quizzes", "detect_devtools", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "users", "plan", "TEXT DEFAULT 'free'")
+        _ensure_column(conn, "users", "plan_expires_at", "INTEGER")
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS certificates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                attempt_id INTEGER NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
+                quiz_id INTEGER NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+                serial TEXT UNIQUE NOT NULL,
+                recipient_name TEXT,
+                score REAL,
+                max_score REAL,
+                percentage REAL,
+                issued_at INTEGER NOT NULL
+            )"""
+        )
         conn.execute(
             """CREATE TABLE IF NOT EXISTS password_resets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
