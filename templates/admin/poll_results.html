@@ -26,6 +26,10 @@
             class="px-3 py-2 bg-white border border-slate-300 rounded text-sm hover:bg-slate-100">📋 Copy link</button>
     <a href="{{ url_for('export_csv', quiz_id=quiz.id) }}" class="px-3 py-2 bg-white border border-slate-300 rounded text-sm hover:bg-slate-100">Raw CSV</a>
     <a href="{{ url_for('export_xlsx', quiz_id=quiz.id) }}" class="px-3 py-2 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">Excel</a>
+    <form method="post" action="{{ url_for('quiz_dedupe_submissions', quiz_id=quiz.id) }}" class="inline"
+          onsubmit="return confirm('Remove duplicate submissions? This permanently deletes older submissions and keeps only the latest one per person (matched by name + email). Cannot be undone.');">
+      <button class="px-3 py-2 bg-white border border-red-200 text-red-700 rounded text-sm hover:bg-red-50">🧹 Remove duplicates</button>
+    </form>
     <button id="refresh-btn" class="px-3 py-2 bg-brand-600 text-white rounded text-sm hover:bg-brand-700">↻ Refresh</button>
   </div>
 </div>

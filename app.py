@@ -564,6 +564,42 @@ def question_reorder(quiz_id):
         conn.close()
 
 
+@app.route("/admin/quizzes/<int:quiz_id>/dedupe-submissions", methods=["POST"])
+@login_required
+def quiz_dedupe_submissions(quiz_id):
+    """Remove duplicate submitted attempts: keep only the latest per (name, email)."""
+    conn = db.get_conn()
+    try:
+        owned_quiz_or_404(conn, quiz_id, session["uid"])
+        rows = conn.execute(
+            """SELECT id, student_name, student_email, submitted_at, started_at
+               FROM attempts WHERE quiz_id=?
+               ORDER BY submitted_at DESC NULLS LAST, started_at DESC""",
+            (quiz_id,),
+        ).fetchall()
+        # Group by (name+email), keep first (latest), delete the rest.
+        seen: dict = {}
+        to_delete: list = []
+        for r in rows:
+            key = (
+                (r["student_name"] or "").strip().lower(),
+                (r["student_email"] or "").strip().lower(),
+            )
+            if not any(key):
+                continue  # treat anonymous attempts as distinct
+            if key in seen:
+                to_delete.append(r["id"])
+            else:
+                seen[key] = r["id"]
+        for old_id in to_delete:
+            conn.execute("DELETE FROM attempts WHERE id=?", (old_id,))
+        conn.commit()
+        flash(f"Removed {len(to_delete)} duplicate submission(s). Kept latest per person.", "success")
+    finally:
+        conn.close()
+    return redirect(url_for("quiz_results", quiz_id=quiz_id))
+
+
 @app.route("/admin/quizzes/<int:quiz_id>/apply-time", methods=["POST"])
 @login_required
 def quiz_apply_time(quiz_id):
@@ -671,27 +707,42 @@ def quiz_results(quiz_id):
                ORDER BY a.submitted_at DESC NULLS LAST, a.started_at DESC""",
             (quiz_id,),
         ).fetchall()]
-        # Show: all submitted attempts + only the LATEST partial per (name+email) when the
-        # student has not yet submitted (avoids 3 rows for one student who refreshed)
         def _stu_key(a):
             return ((a.get("student_name") or "").strip().lower(),
                     (a.get("student_email") or "").strip().lower())
-        submitted_keys = {_stu_key(a) for a in raw_attempts if a["submitted_at"]}
-        seen_partial_keys: set = set()
-        attempts = []
-        for a in raw_attempts:
-            if a["submitted_at"]:
+
+        if quiz["kind"] in ("poll", "survey"):
+            # For polls/surveys: one row per unique respondent (latest only, submitted or partial).
+            # raw_attempts ordering already puts the latest first.
+            seen = set()
+            attempts = []
+            for a in raw_attempts:
+                key = _stu_key(a)
+                # Treat fully-anonymous rows (no name + no email) as unique respondents
+                if not any(key):
+                    attempts.append(a)
+                    continue
+                if key in seen:
+                    continue
+                seen.add(key)
                 attempts.append(a)
-                continue
-            key = _stu_key(a)
-            # Drop partials for students who already submitted
-            if key in submitted_keys:
-                continue
-            # Drop older partials for same student (raw_attempts is started_at DESC)
-            if key in seen_partial_keys:
-                continue
-            seen_partial_keys.add(key)
-            attempts.append(a)
+        else:
+            # For exams: keep every submission (multiple attempts may be legit) and
+            # only the latest partial per (name+email) for students who haven't submitted.
+            submitted_keys = {_stu_key(a) for a in raw_attempts if a["submitted_at"]}
+            seen_partial_keys: set = set()
+            attempts = []
+            for a in raw_attempts:
+                if a["submitted_at"]:
+                    attempts.append(a)
+                    continue
+                key = _stu_key(a)
+                if key in submitted_keys:
+                    continue
+                if key in seen_partial_keys:
+                    continue
+                seen_partial_keys.add(key)
+                attempts.append(a)
         # Pull violation counts per attempt
         viol_rows = conn.execute(
             """SELECT v.attempt_id, COUNT(*) AS n FROM violations v
@@ -1099,6 +1150,21 @@ def take_quiz(code):
             student_name = (request.form.get("student_name") or "").strip() or "Anonymous"
             student_email = (request.form.get("student_email") or "").strip()
             now = db.now_ts()
+            # For polls/surveys: if this respondent already submitted, route them to their existing result
+            # (prevents duplicate rows from refresh / re-submit)
+            if quiz["kind"] in ("poll", "survey") and (student_name.strip() or student_email):
+                existing = conn.execute(
+                    """SELECT id FROM attempts
+                       WHERE quiz_id=? AND submitted_at IS NOT NULL
+                         AND LOWER(TRIM(COALESCE(student_name, ''))) = ?
+                         AND LOWER(TRIM(COALESCE(student_email, ''))) = ?
+                       ORDER BY submitted_at DESC LIMIT 1""",
+                    (quiz["id"], student_name.strip().lower(), student_email.strip().lower()),
+                ).fetchone()
+                if existing:
+                    flash("You've already submitted this poll — showing your existing response.", "success")
+                    session.pop(f"draft_{quiz['id']}", None)
+                    return redirect(url_for("quiz_result", code=code, attempt_id=existing["id"]))
             # Finalize the existing draft if it exists, otherwise create a fresh attempt
             attempt_id = _get_or_create_draft(conn, quiz)
             conn.execute(
