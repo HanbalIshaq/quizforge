@@ -1068,22 +1068,23 @@ def question_save(quiz_id):
         points = int(payload.get("points") or 1)
         explanation = payload.get("explanation") or ""
         time_limit = max(0, int(payload.get("time_limit_seconds") or 0))
+        image_url = (payload.get("image_url") or "").strip() or None
         if not text:
             return jsonify({"ok": False, "error": "Question text required"}), 400
         if qid:
             conn.execute(
-                """UPDATE questions SET type=?, text=?, options=?, correct_answers=?, points=?, explanation=?, time_limit_seconds=?
+                """UPDATE questions SET type=?, text=?, options=?, correct_answers=?, points=?, explanation=?, time_limit_seconds=?, image_url=?
                    WHERE id=? AND quiz_id=?""",
-                (qtype, text, json.dumps(options), json.dumps(correct), points, explanation, time_limit, qid, quiz_id),
+                (qtype, text, json.dumps(options), json.dumps(correct), points, explanation, time_limit, image_url, qid, quiz_id),
             )
         else:
             pos_row = conn.execute(
                 "SELECT COALESCE(MAX(position), -1)+1 AS p FROM questions WHERE quiz_id=?", (quiz_id,)
             ).fetchone()
             cur = conn.execute(
-                """INSERT INTO questions(quiz_id, type, text, options, correct_answers, points, position, explanation, time_limit_seconds)
-                   VALUES(?,?,?,?,?,?,?,?,?)""",
-                (quiz_id, qtype, text, json.dumps(options), json.dumps(correct), points, pos_row["p"], explanation, time_limit),
+                """INSERT INTO questions(quiz_id, type, text, options, correct_answers, points, position, explanation, time_limit_seconds, image_url)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (quiz_id, qtype, text, json.dumps(options), json.dumps(correct), points, pos_row["p"], explanation, time_limit, image_url),
             )
             qid = cur.lastrowid
         conn.execute("UPDATE quizzes SET updated_at=? WHERE id=?", (db.now_ts(), quiz_id))
@@ -2145,6 +2146,23 @@ def _parse_submitted(qtype: str, raw: list[str]):
     if qtype == "dropdown":
         try:
             return int(raw[0])
+        except Exception:
+            return None
+    if qtype in ("matching", "drag_drop"):
+        # Form posted as q_<id>__<index> per option — but we receive multi-values for q_<id>
+        # The student page submits each pair's chosen value individually; client joins them as JSON.
+        try:
+            return json.loads(raw[0]) if raw and raw[0].startswith("[") else raw
+        except Exception:
+            return raw
+    if qtype == "ordering":
+        try:
+            return json.loads(raw[0]) if raw and raw[0].startswith("[") else [int(x) for x in raw]
+        except Exception:
+            return raw
+    if qtype == "hotspot":
+        try:
+            return json.loads(raw[0]) if raw else None
         except Exception:
             return None
     # text-based (short_answer, long_answer, email, phone, date, etc.)

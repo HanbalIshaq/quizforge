@@ -111,7 +111,56 @@
       const t = typeSel.value;
       optsWrap.innerHTML = '';
       shortWrap.classList.add('hidden');
-      if (['mcq_single', 'mcq_multi', 'poll'].includes(t)) {
+      // === New interactive types ===
+      if (t === 'matching' || t === 'drag_drop') {
+        const labelLeft  = t === 'matching' ? 'Prompt' : 'Item';
+        const labelRight = t === 'matching' ? 'Correct match' : 'Correct category / bin';
+        const pairs = (data.options && data.options.length && typeof data.options[0] === 'object')
+          ? data.options : [{a:'',b:''},{a:'',b:''}];
+        const wrapHdr = document.createElement('p');
+        wrapHdr.className = 'text-xs text-slate-500 mb-1';
+        wrapHdr.textContent = (t === 'matching')
+          ? 'Define pairs — students will see left items and pick the matching right item from a shuffled dropdown.'
+          : 'Define items and the correct category each belongs to — students will pick a category for each item.';
+        optsWrap.appendChild(wrapHdr);
+        pairs.forEach(p => addPairRow(p.a || p.item || '', p.b || p.bin || '', t, labelLeft, labelRight));
+        const addBtn = document.createElement('button');
+        addBtn.textContent = '+ row'; addBtn.className = 'text-xs text-brand-700 hover:underline mt-1';
+        addBtn.onclick = (e) => { e.preventDefault(); addPairRow('', '', typeSel.value, labelLeft, labelRight); };
+        optsWrap.appendChild(addBtn);
+        return;
+      }
+      if (t === 'ordering') {
+        const hdr = document.createElement('p');
+        hdr.className = 'text-xs text-slate-500 mb-1';
+        hdr.textContent = 'List items in their correct order — they will be shuffled for the student.';
+        optsWrap.appendChild(hdr);
+        const items = (data.options || []).filter(x => typeof x === 'string');
+        (items.length ? items : ['', '']).forEach(it => addOptionRow(it, false, 'ordering'));
+        const addBtn = document.createElement('button');
+        addBtn.textContent = '+ step'; addBtn.className = 'text-xs text-brand-700 hover:underline mt-1';
+        addBtn.onclick = (e) => { e.preventDefault(); addOptionRow('', false, 'ordering'); };
+        optsWrap.appendChild(addBtn);
+        return;
+      }
+      if (t === 'hotspot') {
+        const hdr = document.createElement('div');
+        hdr.className = 'space-y-2';
+        hdr.innerHTML = `
+          <p class="text-xs text-slate-500">Paste an image URL (full http/https path), then add hot-spots — coordinates are 0–1 (e.g. center = 0.5, 0.5). Student must click within radius.</p>
+          <label class="text-xs">Image URL <input class="nb-image-url w-full px-2 py-1 border rounded text-sm" value="${esc(data.image_url || '')}" placeholder="https://example.com/diagram.png" /></label>
+        `;
+        optsWrap.appendChild(hdr);
+        const spots = (data.options && data.options.length && typeof data.options[0] === 'object')
+          ? data.options : [{x: 0.5, y: 0.5, r: 0.08, label: 'spot'}];
+        spots.forEach(s => addHotspotRow(s));
+        const addBtn = document.createElement('button');
+        addBtn.textContent = '+ hot-spot'; addBtn.className = 'text-xs text-brand-700 hover:underline mt-1';
+        addBtn.onclick = (e) => { e.preventDefault(); addHotspotRow({x:0.5,y:0.5,r:0.08,label:''}); };
+        optsWrap.appendChild(addBtn);
+        return;
+      }
+      if (['mcq_single', 'mcq_multi', 'poll', 'dropdown'].includes(t)) {
         const opts = (data.options && data.options.length) ? data.options : ['', ''];
         opts.forEach((opt, i) => addOptionRow(opt, (data.correct_answers || []).includes(i), t));
         const addOpt = document.createElement('button');
@@ -135,11 +184,43 @@
     function addOptionRow(text, isCorrect, currentType) {
       const row = document.createElement('div');
       row.className = 'flex items-center gap-2 mb-1';
-      const inputType = currentType === 'mcq_multi' ? 'checkbox' : 'radio';
+      // Ordering / dropdown / poll don't need radio/checkbox markers
+      const correctCtrl = (['ordering', 'poll', 'dropdown'].includes(currentType))
+        ? '<span class="w-4"></span>'
+        : `<input type="${currentType === 'mcq_multi' ? 'checkbox' : 'radio'}" name="opt-correct" ${isCorrect ? 'checked' : ''} />`;
       row.innerHTML = `
-        <input type="${inputType}" name="opt-correct" ${isCorrect ? 'checked' : ''} />
-        <input type="text" value="${esc(text)}" placeholder="Option text..." class="flex-1 px-2 py-1.5 border rounded text-sm" />
+        ${correctCtrl}
+        <input type="text" value="${esc(text)}" placeholder="${currentType === 'ordering' ? 'Step text…' : 'Option text…'}" class="flex-1 px-2 py-1.5 border rounded text-sm" />
         <button class="text-red-600 text-xs hover:underline">remove</button>
+      `;
+      row.querySelector('button').onclick = (e) => { e.preventDefault(); row.remove(); };
+      optsWrap.appendChild(row);
+    }
+
+    function addPairRow(left, right, currentType, labelLeft, labelRight) {
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-2 mb-1';
+      row.innerHTML = `
+        <input type="text" value="${esc(left)}" placeholder="${labelLeft}" class="flex-1 px-2 py-1.5 border rounded text-sm pair-a" />
+        <span class="text-slate-400">→</span>
+        <input type="text" value="${esc(right)}" placeholder="${labelRight}" class="flex-1 px-2 py-1.5 border rounded text-sm pair-b" />
+        <button class="text-red-600 text-xs hover:underline">remove</button>
+      `;
+      row.querySelector('button').onclick = (e) => { e.preventDefault(); row.remove(); };
+      optsWrap.appendChild(row);
+    }
+
+    function addHotspotRow(spot) {
+      const row = document.createElement('div');
+      row.className = 'grid grid-cols-4 gap-1 mb-1 hotspot-row';
+      row.innerHTML = `
+        <input type="text" placeholder="Label" value="${esc(spot.label || '')}" class="px-2 py-1.5 border rounded text-sm hs-label" />
+        <input type="number" min="0" max="1" step="0.01" placeholder="x (0–1)" value="${esc(spot.x)}" class="px-2 py-1.5 border rounded text-sm hs-x" />
+        <input type="number" min="0" max="1" step="0.01" placeholder="y (0–1)" value="${esc(spot.y)}" class="px-2 py-1.5 border rounded text-sm hs-y" />
+        <div class="flex gap-1">
+          <input type="number" min="0.01" max="1" step="0.01" placeholder="radius" value="${esc(spot.r || 0.08)}" class="flex-1 px-2 py-1.5 border rounded text-sm hs-r" />
+          <button class="text-red-600 text-xs hover:underline">×</button>
+        </div>
       `;
       row.querySelector('button').onclick = (e) => { e.preventDefault(); row.remove(); };
       optsWrap.appendChild(row);
@@ -162,7 +243,40 @@
       };
       if (!payload.text) { alert('Question text is required.'); return; }
       const t = payload.type;
-      if (['mcq_single', 'mcq_multi', 'poll'].includes(t)) {
+      if (t === 'matching' || t === 'drag_drop') {
+        const pairs = [];
+        wrap.querySelectorAll('.pair-a').forEach((leftInput, i) => {
+          const a = leftInput.value.trim();
+          const b = wrap.querySelectorAll('.pair-b')[i].value.trim();
+          if (a && b) pairs.push(t === 'matching' ? {a, b} : {item: a, bin: b});
+        });
+        if (pairs.length < 2) { alert('At least 2 pairs required.'); return; }
+        payload.options = pairs;
+      } else if (t === 'ordering') {
+        const items = [];
+        wrap.querySelectorAll('.q-options-wrap input[type="text"]').forEach(inp => {
+          const v = inp.value.trim();
+          if (v) items.push(v);
+        });
+        if (items.length < 2) { alert('At least 2 items required.'); return; }
+        payload.options = items;
+        payload.correct_answers = items.map((_, i) => i);  // correct order = sequence as authored
+      } else if (t === 'hotspot') {
+        const url = wrap.querySelector('.nb-image-url');
+        payload.image_url = (url && url.value || '').trim();
+        if (!payload.image_url) { alert('Image URL is required for hotspot questions.'); return; }
+        const spots = [];
+        wrap.querySelectorAll('.hotspot-row').forEach(row => {
+          spots.push({
+            label: row.querySelector('.hs-label').value.trim(),
+            x: parseFloat(row.querySelector('.hs-x').value || '0.5'),
+            y: parseFloat(row.querySelector('.hs-y').value || '0.5'),
+            r: parseFloat(row.querySelector('.hs-r').value || '0.08'),
+          });
+        });
+        if (!spots.length) { alert('At least one hotspot is required.'); return; }
+        payload.options = spots;
+      } else if (['mcq_single', 'mcq_multi', 'poll', 'dropdown'].includes(t)) {
         const rows = optsWrap.querySelectorAll('div.flex');
         rows.forEach((row, i) => {
           const txt = row.querySelector('input[type="text"]').value.trim();

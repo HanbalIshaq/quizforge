@@ -205,6 +205,62 @@
                 <option value="{{ orig_idx }}" {% if saved is not none and saved == orig_idx %}selected{% endif %}>{{ opt }}</option>
               {% endfor %}
             </select>
+          {% elif q.type == 'matching' %}
+            {# Each option = {"a": prompt, "b": match}. Show prompts; dropdown of all matches shuffled. #}
+            {% set choices = q.options | map(attribute='b') | list %}
+            <input type="hidden" name="q_{{ q.id }}" class="matching-answer" data-qid="{{ q.id }}" />
+            <div class="space-y-2 matching-block" data-qid="{{ q.id }}">
+              {% for pair in q.options %}
+                <div class="flex items-center gap-2">
+                  <span class="flex-1 px-3 py-2 bg-slate-100 rounded">{{ pair.a }}</span>
+                  <span class="text-slate-400">→</span>
+                  <select class="flex-1 px-3 py-2 border rounded matching-pick">
+                    <option value="">— Pick a match —</option>
+                    {% for c in choices %}
+                      <option value="{{ c }}">{{ c }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+              {% endfor %}
+            </div>
+          {% elif q.type == 'ordering' %}
+            <input type="hidden" name="q_{{ q.id }}" class="ordering-answer" data-qid="{{ q.id }}" />
+            <ol class="space-y-2 ordering-block list-none" data-qid="{{ q.id }}">
+              {% for opt in q.options_with_idx %}
+                <li class="flex items-center gap-2 p-2 border rounded bg-slate-50 ordering-item" data-orig-idx="{{ opt[0] }}">
+                  <span class="w-6 text-slate-500 text-center order-num">{{ loop.index }}</span>
+                  <span class="flex-1">{{ opt[1] }}</span>
+                  <button type="button" class="px-2 py-1 bg-slate-200 rounded hover:bg-slate-300 order-up" aria-label="Move up">↑</button>
+                  <button type="button" class="px-2 py-1 bg-slate-200 rounded hover:bg-slate-300 order-down" aria-label="Move down">↓</button>
+                </li>
+              {% endfor %}
+            </ol>
+          {% elif q.type == 'drag_drop' %}
+            {# options = [{"item": ..., "bin": ...}]; dropdown per item with all bins #}
+            {% set all_bins = q.options | map(attribute='bin') | list | unique | list %}
+            <input type="hidden" name="q_{{ q.id }}" class="dragdrop-answer" data-qid="{{ q.id }}" />
+            <div class="space-y-2 dragdrop-block" data-qid="{{ q.id }}">
+              {% for pair in q.options %}
+                <div class="flex items-center gap-2">
+                  <span class="flex-1 px-3 py-2 bg-slate-100 rounded">{{ pair.item }}</span>
+                  <span class="text-slate-400">→</span>
+                  <select class="px-3 py-2 border rounded dragdrop-pick">
+                    <option value="">— Choose category —</option>
+                    {% for b in all_bins %}
+                      <option value="{{ b }}">{{ b }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+              {% endfor %}
+            </div>
+          {% elif q.type == 'hotspot' %}
+            <input type="hidden" name="q_{{ q.id }}" class="hotspot-answer" data-qid="{{ q.id }}" />
+            <div class="hotspot-block relative inline-block" data-qid="{{ q.id }}">
+              <img src="{{ q.image_url or '' }}" alt="Click the right spot"
+                   class="max-w-full max-h-96 rounded border cursor-crosshair hotspot-img" />
+              <div class="hotspot-marker hidden absolute w-5 h-5 rounded-full bg-brand-500 border-2 border-white shadow pointer-events-none" style="transform: translate(-50%,-50%);"></div>
+              <p class="text-xs text-slate-500 mt-1">Click the area that answers the question.</p>
+            </div>
           {% elif q.type == 'long_answer' or q.type == 'open_ended' or q.type == 'word_cloud' %}
             <textarea name="q_{{ q.id }}" rows="4" class="w-full px-3 py-2 border rounded" placeholder="Your answer...">{{ saved or '' }}</textarea>
           {% elif q.type == 'rating' %}
@@ -557,6 +613,69 @@
         }
       }, 2000);
     }
+
+    // ===== INTERACTIVE TYPES: matching / ordering / drag_drop / hotspot =====
+    // Matching — when a dropdown changes, collect picks into a JSON array on the hidden input
+    document.querySelectorAll('.matching-block').forEach(function(block) {
+      const hidden = document.querySelector('.matching-answer[data-qid="' + block.dataset.qid + '"]');
+      const update = () => {
+        const picks = Array.from(block.querySelectorAll('.matching-pick')).map(s => s.value);
+        if (hidden) hidden.value = JSON.stringify(picks);
+      };
+      block.addEventListener('change', update);
+      update();
+    });
+    // Drag-drop categorize — same pattern
+    document.querySelectorAll('.dragdrop-block').forEach(function(block) {
+      const hidden = document.querySelector('.dragdrop-answer[data-qid="' + block.dataset.qid + '"]');
+      const update = () => {
+        const picks = Array.from(block.querySelectorAll('.dragdrop-pick')).map(s => s.value);
+        if (hidden) hidden.value = JSON.stringify(picks);
+      };
+      block.addEventListener('change', update);
+      update();
+    });
+    // Ordering — up/down buttons reorder + write index list to hidden input
+    document.querySelectorAll('.ordering-block').forEach(function(list) {
+      const hidden = document.querySelector('.ordering-answer[data-qid="' + list.dataset.qid + '"]');
+      const renumber = () => {
+        Array.from(list.querySelectorAll('.ordering-item')).forEach((li, i) => {
+          const n = li.querySelector('.order-num'); if (n) n.textContent = i + 1;
+        });
+        const order = Array.from(list.querySelectorAll('.ordering-item')).map(li => parseInt(li.dataset.origIdx, 10));
+        if (hidden) hidden.value = JSON.stringify(order);
+      };
+      list.addEventListener('click', function(e) {
+        const li = e.target.closest('.ordering-item');
+        if (!li) return;
+        if (e.target.classList.contains('order-up') && li.previousElementSibling) {
+          list.insertBefore(li, li.previousElementSibling);
+          renumber();
+        } else if (e.target.classList.contains('order-down') && li.nextElementSibling) {
+          list.insertBefore(li.nextElementSibling, li);
+          renumber();
+        }
+      });
+      renumber();
+    });
+    // Hotspot — click image; record normalized (x,y) in hidden input
+    document.querySelectorAll('.hotspot-block').forEach(function(block) {
+      const img = block.querySelector('.hotspot-img');
+      const marker = block.querySelector('.hotspot-marker');
+      const hidden = document.querySelector('.hotspot-answer[data-qid="' + block.dataset.qid + '"]');
+      if (!img) return;
+      img.addEventListener('click', function(e) {
+        const r = img.getBoundingClientRect();
+        const x = (e.clientX - r.left) / r.width;
+        const y = (e.clientY - r.top) / r.height;
+        if (marker) {
+          marker.classList.remove('hidden');
+          marker.style.left = (x * 100) + '%';
+          marker.style.top = (y * 100) + '%';
+        }
+        if (hidden) hidden.value = JSON.stringify({x: x, y: y});
+      });
+    });
 
     // ===== AI CAMERA PROCTORING =====
     const cameraProctor = form.dataset.cameraProctor === '1';
