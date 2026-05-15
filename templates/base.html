@@ -64,6 +64,7 @@
       <div class="flex items-center gap-3 text-sm">
         {% if user %}
           <a href="{{ url_for('admin_dashboard') }}" class="hover:text-brand-700">Dashboard</a>
+          <a href="{{ url_for('bank_list') }}" class="hover:text-brand-700">Question Bank</a>
           <span class="text-slate-400 hidden md:inline">|</span>
           <span class="text-slate-600 hidden md:inline">{{ user.name or user.email }}</span>
           <a href="{{ url_for('logout') }}" class="text-slate-500 hover:text-red-600">Sign out</a>

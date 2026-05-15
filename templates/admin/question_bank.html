@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Question Bank &middot; QuizForge{% endblock %}
+{% block content %}
+<div class="flex items-start justify-between mb-4 gap-4 flex-wrap">
+  <div>
+    <a href="{{ url_for('admin_dashboard') }}" class="text-sm text-slate-500 hover:text-brand-700">&larr; Dashboard</a>
+    <h1 class="text-2xl font-bold mt-1">Question Bank</h1>
+    <p class="text-sm text-slate-500">Reusable questions you can drop into any quiz. {{ items|length }} item(s).</p>
+  </div>
+  <button id="new-bank-btn" class="px-3 py-2 bg-brand-600 text-white rounded text-sm hover:bg-brand-700">+ New bank question</button>
+</div>
+
+<form method="get" class="bg-white border border-slate-200 rounded-lg p-3 mb-4 flex gap-2 flex-wrap items-center">
+  <input name="q" value="{{ q }}" placeholder="Search text or tags…"
+         class="flex-1 px-3 py-2 border border-slate-300 rounded text-sm min-w-0" />
+  <select name="cat" class="px-2 py-2 border border-slate-300 rounded text-sm">
+    <option value="">All categories</option>
+    {% for c in categories %}
+      <option value="{{ c }}" {% if cat == c %}selected{% endif %}>{{ c }}</option>
+    {% endfor %}
+  </select>
+  <button class="px-3 py-2 bg-slate-700 text-white rounded text-sm hover:bg-slate-800">Filter</button>
+  {% if q or cat %}
+    <a href="{{ url_for('bank_list') }}" class="text-xs text-slate-500 hover:text-brand-700">Clear</a>
+  {% endif %}
+</form>
+
+<form method="post" id="copy-form" class="bg-white border border-slate-200 rounded-lg p-3 mb-4 flex flex-wrap gap-2 items-center text-sm">
+  <span class="text-slate-600">Tick questions, then:</span>
+  <select name="quiz_id" id="copy-target" class="px-2 py-2 border border-slate-300 rounded text-sm">
+    {% for q in my_quizzes %}
+      <option value="{{ q.id }}">{{ q.title }} (#{{ q.id }})</option>
+    {% else %}
+      <option value="">No quizzes yet</option>
+    {% endfor %}
+  </select>
+  <button type="button" id="copy-btn"
+          class="px-3 py-2 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">Copy selected into quiz</button>
+</form>
+
+<div id="new-bank-editor" class="hidden bg-white border-2 border-brand-500 rounded-lg p-4 mb-4">
+  <div class="grid md:grid-cols-3 gap-2 mb-2">
+    <select id="nb-type" class="px-2 py-2 border rounded text-sm">
+      {% for v, label in QUESTION_TYPES %}<option value="{{ v }}">{{ label }}</option>{% endfor %}
+    </select>
+    <input id="nb-category" placeholder="Category (optional)" class="px-3 py-2 border rounded text-sm" />
+    <input id="nb-tags" placeholder="Tags, comma-separated" class="px-3 py-2 border rounded text-sm" />
+  </div>
+  <textarea id="nb-text" rows="2" placeholder="Question text…" class="w-full px-3 py-2 border rounded text-sm mb-2"></textarea>
+  <textarea id="nb-options" rows="3" placeholder="One option per line (leave empty for non-MCQ types)" class="w-full px-3 py-2 border rounded text-sm mb-2"></textarea>
+  <input id="nb-correct" placeholder="Correct answers: indices like 1,3 — or for short_answer: comma-separated accepted text" class="w-full px-3 py-2 border rounded text-sm mb-2" />
+  <div class="flex justify-end gap-2">
+    <button id="nb-cancel" class="px-3 py-1.5 bg-slate-100 text-sm rounded hover:bg-slate-200">Cancel</button>
+    <button id="nb-save" class="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700">Save to bank</button>
+  </div>
+</div>
+
+{% if items %}
+  <div class="space-y-2">
+    {% for it in items %}
+      <div class="bg-white border border-slate-200 rounded-lg p-3 flex items-start gap-3">
+        <input type="checkbox" name="bank_ids" value="{{ it.id }}" form="copy-form" class="mt-1.5 bank-cb" />
+        <div class="flex-1">
+          <div class="text-xs text-slate-500 mb-0.5">
+            <span class="capitalize">{{ it.type.replace('_',' ') }}</span> &middot; {{ it.points }} pt{{ '' if it.points == 1 else 's' }}
+            {% if it.category %}&middot; <span class="px-1.5 py-0.5 bg-slate-100 rounded text-slate-700">{{ it.category }}</span>{% endif %}
+            {% if it.tags %}{% for t in it.tags.split(',') %}{% if t.strip() %} <span class="px-1.5 py-0.5 bg-brand-50 text-brand-700 rounded">#{{ t.strip() }}</span>{% endif %}{% endfor %}{% endif %}
+          </div>
+          <p class="font-medium">{{ it.text }}</p>
+          {% if it.options %}
+            <ul class="mt-1 text-sm text-slate-600 space-y-0.5">
+              {% for opt in it.options %}
+                <li>{{ "ABCDEFGH"[loop.index0] }}. {{ opt }}{% if loop.index0 in it.correct_answers %} <span class="text-emerald-600 text-xs">✓</span>{% endif %}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+        <form method="post" action="{{ url_for('bank_delete', bid=it.id) }}"
+              onsubmit="return confirm('Delete this bank question?')">
+          <button class="text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100">Delete</button>
+        </form>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="bg-white border border-dashed border-slate-300 rounded p-12 text-center text-slate-500">
+    <p>Your bank is empty. Click <b>+ New bank question</b> to add one.</p>
+  </div>
+{% endif %}
+
+<script>
+(function() {
+  const ed = document.getElementById('new-bank-editor');
+  document.getElementById('new-bank-btn').onclick = () => ed.classList.remove('hidden');
+  document.getElementById('nb-cancel').onclick = () => ed.classList.add('hidden');
+  document.getElementById('nb-save').onclick = async () => {
+    const type = document.getElementById('nb-type').value;
+    const text = document.getElementById('nb-text').value.trim();
+    if (!text) { alert('Question text required'); return; }
+    const optsRaw = document.getElementById('nb-options').value.trim();
+    const correctRaw = document.getElementById('nb-correct').value.trim();
+    let options = [];
+    let correct = [];
+    if (['mcq_single','mcq_multi','poll'].includes(type)) {
+      options = optsRaw.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+      correct = correctRaw.split(/[,\s]+/).filter(Boolean).map(s => {
+        if (/^\d+$/.test(s)) return parseInt(s,10) - 1;
+        if (/^[A-Za-z]$/.test(s)) return s.toUpperCase().charCodeAt(0) - 65;
+        return -1;
+      }).filter(n => n >= 0);
+    } else if (type === 'true_false') {
+      options = ['True','False'];
+      correct = correctRaw.toLowerCase().startsWith('t') ? [0] : [1];
+    } else if (['short_answer','fill_blank'].includes(type)) {
+      correct = correctRaw.split(',').map(s=>s.trim()).filter(Boolean);
+    }
+    const payload = {
+      type, text, options, correct_answers: correct, points: 1,
+      explanation: '',
+      category: document.getElementById('nb-category').value.trim(),
+      tags: document.getElementById('nb-tags').value.trim(),
+    };
+    const r = await fetch('{{ url_for("bank_create") }}', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.ok) { alert(j.error || 'Save failed'); return; }
+    window.location.reload();
+  };
+
+  document.getElementById('copy-btn').onclick = function() {
+    const checked = Array.from(document.querySelectorAll('.bank-cb:checked')).map(c => c.value);
+    if (checked.length === 0) { alert('Tick at least one question first.'); return; }
+    const qid = document.getElementById('copy-target').value;
+    if (!qid) { alert('Create a quiz first.'); return; }
+    const f = document.getElementById('copy-form');
+    f.action = '/admin/quizzes/' + qid + '/add-from-bank';
+    f.submit();
+  };
+})();
+</script>
+{% endblock %}

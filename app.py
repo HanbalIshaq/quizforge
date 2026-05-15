@@ -9,7 +9,9 @@ from datetime import datetime
 from functools import wraps
 
 import bcrypt
+import ai_generator
 import certificates
+import email_send
 from dotenv import load_dotenv
 from flask import (
     Flask, abort, flash, g, jsonify, redirect, render_template, request,
@@ -426,7 +428,15 @@ def forgot_password():
                 conn.commit()
                 reset_url = url_for("reset_password", token=tok, _external=True)
                 app.logger.info("Password reset link for %s -> %s", email, reset_url)
-                if os.environ.get("SHOW_RESET_LINK", "").lower() in ("1", "true", "yes"):
+                sent = False
+                if email_send.is_configured():
+                    sent = email_send.send_email(
+                        to=email,
+                        subject="Reset your QuizForge password",
+                        body=f"Use this link to reset your password (expires in 15 minutes):\n\n{reset_url}\n\nIf you didn't request this, ignore this email.",
+                        html=f"<p>Use this link to reset your password (expires in 15 minutes):</p><p><a href=\"{reset_url}\">{reset_url}</a></p><p>If you didn't request this, ignore this email.</p>",
+                    )
+                if not sent and os.environ.get("SHOW_RESET_LINK", "").lower() in ("1", "true", "yes"):
                     flash(f"Password reset link (copy &amp; paste): {reset_url}", "success")
             flash("If an account exists for that email, a password reset link was generated. The link expires in 15 minutes.", "success")
             return redirect(url_for("login"))
@@ -758,6 +768,183 @@ def quiz_update_settings(quiz_id):
         conn.close()
 
 
+@app.route("/admin/bank")
+@login_required
+def bank_list():
+    q = (request.args.get("q") or "").strip()
+    cat = (request.args.get("cat") or "").strip()
+    conn = db.get_conn()
+    try:
+        sql = "SELECT * FROM question_bank WHERE user_id=?"
+        params = [session["uid"]]
+        if q:
+            sql += " AND (LOWER(text) LIKE ? OR LOWER(tags) LIKE ?)"
+            wild = f"%{q.lower()}%"
+            params += [wild, wild]
+        if cat:
+            sql += " AND LOWER(COALESCE(category, '')) = ?"
+            params.append(cat.lower())
+        sql += " ORDER BY updated_at DESC"
+        items = [dict(r) for r in conn.execute(sql, tuple(params)).fetchall()]
+        for it in items:
+            it["options"] = json.loads(it["options"] or "[]")
+            it["correct_answers"] = json.loads(it["correct_answers"] or "[]")
+        categories = [r["category"] for r in conn.execute(
+            "SELECT DISTINCT category FROM question_bank WHERE user_id=? AND COALESCE(category, '') != ''",
+            (session["uid"],),
+        ).fetchall()]
+        # User's quizzes for the "Copy into quiz" picker
+        my_quizzes = [dict(r) for r in conn.execute(
+            "SELECT id, title FROM quizzes WHERE user_id=? ORDER BY updated_at DESC",
+            (session["uid"],),
+        ).fetchall()]
+        return render_template(
+            "admin/question_bank.html",
+            items=items, categories=categories, my_quizzes=my_quizzes,
+            q=q, cat=cat,
+        )
+    finally:
+        conn.close()
+
+
+@app.route("/admin/bank/new", methods=["POST"])
+@login_required
+def bank_create():
+    payload = request.get_json(force=True, silent=True) or {}
+    text = (payload.get("text") or "").strip()
+    if not text:
+        return jsonify({"ok": False, "error": "Question text required"}), 400
+    qtype = payload.get("type") or "mcq_single"
+    options = payload.get("options") or []
+    correct = payload.get("correct_answers") or []
+    points = int(payload.get("points") or 1)
+    explanation = payload.get("explanation") or ""
+    category = (payload.get("category") or "").strip()
+    tags = (payload.get("tags") or "").strip()
+    conn = db.get_conn()
+    try:
+        cur = conn.execute(
+            """INSERT INTO question_bank(user_id, type, text, options, correct_answers, points,
+                                          explanation, category, tags, created_at, updated_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (session["uid"], qtype, text, json.dumps(options), json.dumps(correct),
+             points, explanation, category, tags, db.now_ts(), db.now_ts()),
+        )
+        conn.commit()
+        return jsonify({"ok": True, "id": cur.lastrowid})
+    finally:
+        conn.close()
+
+
+@app.route("/admin/bank/<int:bid>/delete", methods=["POST"])
+@login_required
+def bank_delete(bid):
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            "DELETE FROM question_bank WHERE id=? AND user_id=?",
+            (bid, session["uid"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return redirect(url_for("bank_list"))
+
+
+@app.route("/admin/quizzes/<int:quiz_id>/add-from-bank", methods=["POST"])
+@login_required
+def quiz_add_from_bank(quiz_id):
+    """Copy selected bank questions into this quiz."""
+    bank_ids = request.form.getlist("bank_ids")
+    if not bank_ids:
+        flash("Select at least one question to add.", "error")
+        return redirect(url_for("bank_list"))
+    conn = db.get_conn()
+    try:
+        owned_quiz_or_404(conn, quiz_id, session["uid"])
+        # Next position
+        pos_row = conn.execute(
+            "SELECT COALESCE(MAX(position), -1)+1 AS p FROM questions WHERE quiz_id=?", (quiz_id,)
+        ).fetchone()
+        start_pos = pos_row["p"]
+        copied = 0
+        for i, bid in enumerate(bank_ids):
+            try:
+                bid_int = int(bid)
+            except ValueError:
+                continue
+            row = conn.execute(
+                "SELECT * FROM question_bank WHERE id=? AND user_id=?",
+                (bid_int, session["uid"]),
+            ).fetchone()
+            if not row:
+                continue
+            conn.execute(
+                """INSERT INTO questions(quiz_id, type, text, options, correct_answers,
+                                          points, position, explanation, time_limit_seconds)
+                   VALUES(?,?,?,?,?,?,?,?,?)""",
+                (quiz_id, row["type"], row["text"], row["options"], row["correct_answers"],
+                 row["points"], start_pos + i, row["explanation"] or "", row["time_limit_seconds"] or 0),
+            )
+            copied += 1
+        conn.execute("UPDATE quizzes SET updated_at=? WHERE id=?", (db.now_ts(), quiz_id))
+        conn.commit()
+        flash(f"Copied {copied} question(s) into the quiz.", "success")
+    finally:
+        conn.close()
+    return redirect(url_for("quiz_edit", quiz_id=quiz_id))
+
+
+@app.route("/admin/quizzes/<int:quiz_id>/ai-generate", methods=["POST"])
+@login_required
+def quiz_ai_generate(quiz_id):
+    """Generate questions with AI and append them to the quiz."""
+    if not feature_enabled("feature_ai_quiz_gen"):
+        flash("AI quiz generation is disabled by the site administrator.", "error")
+        return redirect(url_for("quiz_edit", quiz_id=quiz_id))
+    plan = user_plan(session["uid"])
+    if not plan.get("allow_ai"):
+        flash(f"AI quiz generation is not included in the {plan['label']} plan. Upgrade to Pro to unlock.", "error")
+        return redirect(url_for("quiz_edit", quiz_id=quiz_id))
+    material = (request.form.get("material") or "").strip()
+    n = int(request.form.get("n") or 10)
+    qtype = (request.form.get("qtype") or "mcq_single").strip()
+    if not material:
+        flash("Please paste some source material for the AI to use.", "error")
+        return redirect(url_for("quiz_edit", quiz_id=quiz_id))
+    conn = db.get_conn()
+    try:
+        owned_quiz_or_404(conn, quiz_id, session["uid"])
+        try:
+            questions = ai_generator.generate_questions(material, n=n, qtype=qtype)
+        except Exception as e:
+            flash(f"AI generation failed: {e}", "error")
+            return redirect(url_for("quiz_edit", quiz_id=quiz_id))
+        pos_row = conn.execute(
+            "SELECT COALESCE(MAX(position), -1)+1 AS p FROM questions WHERE quiz_id=?", (quiz_id,)
+        ).fetchone()
+        start_pos = pos_row["p"]
+        for i, q in enumerate(questions):
+            conn.execute(
+                """INSERT INTO questions(quiz_id, type, text, options, correct_answers, points, position, explanation)
+                   VALUES(?,?,?,?,?,?,?,?)""",
+                (
+                    quiz_id, q["type"], q["text"],
+                    json.dumps(q.get("options") or []),
+                    json.dumps(q.get("correct_answers") or []),
+                    int(q.get("points") or 1),
+                    start_pos + i,
+                    q.get("explanation") or "",
+                ),
+            )
+        conn.execute("UPDATE quizzes SET updated_at=? WHERE id=?", (db.now_ts(), quiz_id))
+        conn.commit()
+        flash(f"AI generated and added {len(questions)} question(s).", "success")
+    finally:
+        conn.close()
+    return redirect(url_for("quiz_edit", quiz_id=quiz_id))
+
+
 _SETTING_TYPES = {
     "title": "str", "description": "str", "kind": "str", "quiz_password": "str",
     "ip_allowlist": "str",
@@ -999,98 +1186,6 @@ def quiz_apply_time(quiz_id):
         conn.close()
 
 
-@app.route("/admin/quizzes/<int:quiz_id>/ai-generate", methods=["POST"])
-@login_required
-def quiz_ai_generate(quiz_id):
-    """Generate quiz questions using an AI model. Reads ANTHROPIC_API_KEY from env."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if not api_key:
-        return jsonify({"ok": False, "error": "AI is not configured on this server. Set the ANTHROPIC_API_KEY environment variable to enable AI quiz generation."}), 400
-    try:
-        import anthropic
-    except ImportError:
-        return jsonify({"ok": False, "error": "anthropic package not installed."}), 500
-    payload = request.get_json(force=True, silent=True) or {}
-    source_text = (payload.get("source") or "").strip()
-    n_questions = max(1, min(int(payload.get("n") or 10), 30))
-    qtype = payload.get("qtype") or "mcq_single"
-    difficulty = (payload.get("difficulty") or "medium").strip().lower()
-    if not source_text:
-        return jsonify({"ok": False, "error": "Provide source material or a topic."}), 400
-    if qtype not in {"mcq_single", "mcq_multi", "true_false", "short_answer"}:
-        qtype = "mcq_single"
-
-    conn = db.get_conn()
-    try:
-        owned_quiz_or_404(conn, quiz_id, session["uid"])
-    finally:
-        conn.close()
-
-    spec = {
-        "mcq_single": "Each question must have exactly 4 plausible options and ONE correct answer. Set type to 'mcq_single' and correct_answers to a single-element array of the 0-based index of the correct option.",
-        "mcq_multi":  "Each question must have 4-6 options with TWO OR MORE correct answers. Set type to 'mcq_multi' and correct_answers to an array of 0-based indices.",
-        "true_false": "Each question is a Yes/No or True/False statement. Set type to 'true_false', options to ['True','False'], correct_answers to [0] for True or [1] for False.",
-        "short_answer":"Each question expects a short factual answer (one to four words). Set type to 'short_answer', options to [], correct_answers to an array of acceptable answers (lowercase, no trailing punctuation).",
-    }[qtype]
-    prompt = (
-        f"You are an expert quiz writer. Generate {n_questions} {difficulty}-difficulty quiz questions "
-        f"from the source material below. {spec} Each question must have a 'text' field and 'points':1. "
-        f"Return ONLY a JSON array — no prose, no markdown, no explanation. Do not wrap in ```json fences.\n\n"
-        f"SOURCE MATERIAL:\n{source_text[:8000]}"
-    )
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=4000,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = "".join(b.text for b in resp.content if hasattr(b, "text"))
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"AI request failed: {e}"}), 502
-    # Best-effort extract: trim to the first JSON array
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.strip("`").lstrip("json").strip()
-    start = raw.find("[")
-    end = raw.rfind("]")
-    if start == -1 or end == -1:
-        return jsonify({"ok": False, "error": "Could not parse the AI response. Try again with shorter source text."}), 502
-    try:
-        items = json.loads(raw[start:end + 1])
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"Could not parse the AI response as JSON: {e}"}), 502
-
-    # Insert questions
-    conn = db.get_conn()
-    inserted = 0
-    try:
-        pos_row = conn.execute(
-            "SELECT COALESCE(MAX(position), -1)+1 AS p FROM questions WHERE quiz_id=?", (quiz_id,)
-        ).fetchone()
-        pos = pos_row["p"]
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            text = (item.get("text") or "").strip()
-            if not text:
-                continue
-            options = item.get("options") or []
-            correct = item.get("correct_answers") or []
-            type_ = item.get("type") or qtype
-            points = int(item.get("points") or 1)
-            conn.execute(
-                """INSERT INTO questions(quiz_id, type, text, options, correct_answers, points, position, explanation)
-                   VALUES(?,?,?,?,?,?,?,?)""",
-                (quiz_id, type_, text, json.dumps(options), json.dumps(correct), points, pos, ""),
-            )
-            pos += 1
-            inserted += 1
-        conn.execute("UPDATE quizzes SET updated_at=? WHERE id=?", (db.now_ts(), quiz_id))
-        conn.commit()
-    finally:
-        conn.close()
-    return jsonify({"ok": True, "inserted": inserted})
 
 
 @app.route("/admin/quizzes/<int:quiz_id>/import", methods=["POST"])

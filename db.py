@@ -316,6 +316,25 @@ def init_db() -> None:
         _ensure_column(conn, "quizzes", "detect_devtools", "INTEGER DEFAULT 0")
         _ensure_column(conn, "users", "plan", "TEXT DEFAULT 'free'")
         _ensure_column(conn, "users", "plan_expires_at", "INTEGER")
+        # Question bank — reusable questions per teacher
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS question_bank (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                type TEXT NOT NULL,
+                text TEXT NOT NULL,
+                options TEXT,
+                correct_answers TEXT,
+                points INTEGER DEFAULT 1,
+                explanation TEXT,
+                time_limit_seconds INTEGER DEFAULT 0,
+                category TEXT,
+                tags TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )"""
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bank_user ON question_bank(user_id)")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS certificates (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
