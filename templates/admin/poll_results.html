@@ -300,6 +300,14 @@
 {% if quiz.kind != 'survey' and attempts %}
   <details class="mt-8 bg-white border border-slate-200 rounded-lg p-4">
     <summary class="font-semibold cursor-pointer">Individual respondents ({{ attempts|length }})</summary>
+    <p class="text-xs text-slate-500 mt-2 mb-2">
+      <b>About this list:</b>
+      "Anonymous" means the respondent didn't enter a name.
+      Two people with the same name but different (or empty) emails are shown as separate rows
+      — without an email we can't tell them apart. To collapse same-named people automatically,
+      tick "Require email" in the quiz Settings; once they have unique emails, duplicates won't appear.
+      You can also delete any row individually with the red <span class="text-red-700">Delete</span> button.
+    </p>
     <table class="w-full text-sm mt-3">
       <thead class="bg-slate-50 text-left text-slate-600">
         <tr>
@@ -327,8 +335,13 @@
               <span class="font-mono">{{ a.n_answered or 0 }}</span> / {{ stats|length }}
             </td>
             <td class="px-3 py-2 text-slate-500">{{ a.submitted_at_fmt or a.started_at_fmt }}</td>
-            <td class="px-3 py-2 text-right">
+            <td class="px-3 py-2 text-right whitespace-nowrap">
               <a href="{{ url_for('attempt_detail', quiz_id=quiz.id, aid=a.id) }}" class="text-xs px-2 py-1 bg-slate-100 rounded hover:bg-slate-200">View</a>
+              <form method="post" action="{{ url_for('attempt_delete', quiz_id=quiz.id, aid=a.id) }}"
+                    onsubmit="return confirm('Delete this submission permanently? This removes the respondent and all their answers. Cannot be undone.');"
+                    class="inline">
+                <button class="text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100">Delete</button>
+              </form>
             </td>
           </tr>
         {% endfor %}

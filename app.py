@@ -564,6 +564,26 @@ def question_reorder(quiz_id):
         conn.close()
 
 
+@app.route("/admin/quizzes/<int:quiz_id>/attempts/<int:aid>/delete", methods=["POST"])
+@login_required
+def attempt_delete(quiz_id, aid):
+    """Delete a single respondent's submission (and their answers/violations via FK cascade)."""
+    conn = db.get_conn()
+    try:
+        owned_quiz_or_404(conn, quiz_id, session["uid"])
+        cur = conn.execute(
+            "DELETE FROM attempts WHERE id=? AND quiz_id=?", (aid, quiz_id)
+        )
+        conn.commit()
+        if cur.rowcount:
+            flash("Submission removed.", "success")
+        else:
+            flash("That submission was already gone.", "error")
+    finally:
+        conn.close()
+    return redirect(url_for("quiz_results", quiz_id=quiz_id))
+
+
 @app.route("/admin/quizzes/<int:quiz_id>/dedupe-submissions", methods=["POST"])
 @login_required
 def quiz_dedupe_submissions(quiz_id):
@@ -578,15 +598,16 @@ def quiz_dedupe_submissions(quiz_id):
             (quiz_id,),
         ).fetchall()
         # Group by (name+email), keep first (latest), delete the rest.
+        # Only collapse when email is present — without email we can't tell two same-named
+        # people apart and would risk deleting legitimate distinct responses.
         seen: dict = {}
         to_delete: list = []
         for r in rows:
-            key = (
-                (r["student_name"] or "").strip().lower(),
-                (r["student_email"] or "").strip().lower(),
-            )
-            if not any(key):
-                continue  # treat anonymous attempts as distinct
+            name = (r["student_name"] or "").strip().lower()
+            email = (r["student_email"] or "").strip().lower()
+            if not email:
+                continue  # leave name-only / anonymous rows alone
+            key = (name, email)
             if key in seen:
                 to_delete.append(r["id"])
             else:
@@ -712,19 +733,19 @@ def quiz_results(quiz_id):
                     (a.get("student_email") or "").strip().lower())
 
         if quiz["kind"] in ("poll", "survey"):
-            # For polls/surveys: one row per unique respondent (latest only, submitted or partial).
-            # raw_attempts ordering already puts the latest first.
+            # For polls/surveys: only collapse rows when we can confidently say two attempts
+            # are the same person — i.e. when an email is provided. Without an email we
+            # cannot tell "Alice #1" apart from "Alice #2", so we leave them as separate rows
+            # (the admin can delete unwanted ones individually).
             seen = set()
             attempts = []
             for a in raw_attempts:
-                key = _stu_key(a)
-                # Treat fully-anonymous rows (no name + no email) as unique respondents
-                if not any(key):
-                    attempts.append(a)
-                    continue
-                if key in seen:
-                    continue
-                seen.add(key)
+                name, email = _stu_key(a)
+                if email:
+                    key = (name, email)
+                    if key in seen:
+                        continue
+                    seen.add(key)
                 attempts.append(a)
         else:
             # For exams: keep every submission (multiple attempts may be legit) and
@@ -1150,9 +1171,10 @@ def take_quiz(code):
             student_name = (request.form.get("student_name") or "").strip() or "Anonymous"
             student_email = (request.form.get("student_email") or "").strip()
             now = db.now_ts()
-            # For polls/surveys: if this respondent already submitted, route them to their existing result
-            # (prevents duplicate rows from refresh / re-submit)
-            if quiz["kind"] in ("poll", "survey") and (student_name.strip() or student_email):
+            # For polls/surveys: if this respondent already submitted, route them to their existing result.
+            # Only block when we can confidently identify the same person (email present).
+            # Without an email, two people with the same name are treated as different respondents.
+            if quiz["kind"] in ("poll", "survey") and student_email:
                 existing = conn.execute(
                     """SELECT id FROM attempts
                        WHERE quiz_id=? AND submitted_at IS NOT NULL

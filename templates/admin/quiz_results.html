@@ -68,8 +68,13 @@
             {% endif %}
           </td>
           <td class="px-4 py-2 text-slate-500">{{ a.submitted_at_fmt }}</td>
-          <td class="px-4 py-2 text-right">
+          <td class="px-4 py-2 text-right whitespace-nowrap">
             <a href="{{ url_for('attempt_detail', quiz_id=quiz.id, aid=a.id) }}" class="text-xs px-2 py-1 bg-slate-100 rounded hover:bg-slate-200">View</a>
+            <form method="post" action="{{ url_for('attempt_delete', quiz_id=quiz.id, aid=a.id) }}"
+                  onsubmit="return confirm('Delete this attempt permanently? Removes the student and all their answers. Cannot be undone.');"
+                  class="inline">
+              <button class="text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100">Delete</button>
+            </form>
           </td>
         </tr>
       {% else %}
