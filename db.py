@@ -324,6 +324,13 @@ def init_db() -> None:
                 used_at INTEGER
             )"""
         )
+        # Site-wide feature flags / key-value settings (super-admin controls)
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS site_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )"""
+        )
         conn.commit()
     finally:
         conn.close()

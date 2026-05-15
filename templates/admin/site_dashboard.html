@@ -6,7 +6,8 @@
     <h1 class="text-2xl font-bold">Site administration</h1>
     <p class="text-sm text-slate-500">Platform stats and management.</p>
   </div>
-  <div class="flex gap-2">
+  <div class="flex flex-wrap gap-2">
+    <a href="{{ url_for('site_features') }}" class="px-3 py-2 bg-white border border-slate-300 rounded text-sm hover:bg-slate-100">⚙ Feature flags</a>
     <a href="{{ url_for('site_users') }}" class="px-3 py-2 bg-white border border-slate-300 rounded text-sm hover:bg-slate-100">Manage users</a>
     <a href="{{ url_for('admin_dashboard') }}" class="px-3 py-2 bg-brand-600 text-white rounded text-sm hover:bg-brand-700">My quizzes</a>
   </div>

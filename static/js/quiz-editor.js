@@ -188,9 +188,91 @@
       });
       const json = await res.json();
       if (!json.ok) { alert(json.error || 'Save failed.'); return; }
-      window.location.reload();
+      // Loadless: replace the editor with a static card; keep teacher on the page
+      payload.id = json.id || payload.id;
+      const card = renderCard(payload);
+      wrap.replaceWith(card);
+      // Update the in-memory map so subsequent edits work
+      window.QF_QUESTIONS_BY_ID = window.QF_QUESTIONS_BY_ID || {};
+      window.QF_QUESTIONS_BY_ID[payload.id] = payload;
+      if (emptyMsg) emptyMsg.classList.add('hidden');
+      flashSaved('Question saved.');
     };
     return wrap;
+  }
+
+  function flashSaved(msg) {
+    let bar = document.getElementById('inline-flash');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'inline-flash';
+      bar.className = 'fixed bottom-6 right-6 z-50 px-4 py-2 rounded-lg shadow-lg bg-emerald-600 text-white text-sm';
+      document.body.appendChild(bar);
+    }
+    bar.textContent = msg;
+    bar.style.display = 'block';
+    clearTimeout(window._flashTimer);
+    window._flashTimer = setTimeout(() => { bar.style.display = 'none'; }, 1800);
+  }
+
+  function renderCard(data) {
+    const card = document.createElement('div');
+    card.className = 'bg-white border border-slate-200 rounded-lg p-4 question-card fade-in';
+    card.dataset.qid = data.id;
+    const idx = document.querySelectorAll('.question-card').length;  // index after replacement
+    const points = data.points || 1;
+    const optsHtml = (data.options || []).map((opt, i) =>
+      `<li class="flex items-start gap-2"><span class="inline-block w-5 text-slate-400">${'ABCDEFGH'[i]}.</span><span>${esc(opt)}</span>${(data.correct_answers || []).includes(i) ? '<span class="text-emerald-600 text-xs">✓ correct</span>' : ''}</li>`
+    ).join('');
+    card.innerHTML = `
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex-1">
+          <div class="text-xs text-slate-500 mb-1">
+            Q${idx + 1} · <span class="capitalize">${(data.type || '').replace(/_/g, ' ')}</span> · ${points} pt${points !== 1 ? 's' : ''}
+            ${data.time_limit_seconds ? ` · <span class="text-amber-700">⏱ ${data.time_limit_seconds}s</span>` : ''}
+          </div>
+          <div class="font-medium">${esc(data.text)}</div>
+          ${optsHtml ? `<ul class="mt-2 text-sm text-slate-700 space-y-0.5">${optsHtml}</ul>` : ''}
+          ${(data.correct_answers && data.correct_answers.length && !(data.options || []).length) ?
+            `<div class="mt-2 text-sm text-emerald-700">Accepted: ${esc((data.correct_answers || []).join(' / '))}</div>` : ''}
+          ${data.explanation ? `<div class="mt-2 text-xs text-slate-500 italic">${esc(data.explanation)}</div>` : ''}
+        </div>
+        <div class="flex flex-col gap-1">
+          <button class="edit-q-btn text-xs px-2 py-1 bg-slate-100 rounded hover:bg-slate-200">Edit</button>
+          <button class="delete-q-btn text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100">Delete</button>
+        </div>
+      </div>`;
+    bindCardButtons(card);
+    return card;
+  }
+
+  function bindCardButtons(card) {
+    const editBtn = card.querySelector('.edit-q-btn');
+    if (editBtn) editBtn.addEventListener('click', () => {
+      const data = window.QF_QUESTIONS_BY_ID[card.dataset.qid];
+      if (!data) { alert('Reload and try again.'); return; }
+      const editor = buildEditor(data);
+      card.replaceWith(editor);
+    });
+    const delBtn = card.querySelector('.delete-q-btn');
+    if (delBtn) delBtn.addEventListener('click', async () => {
+      if (!confirm('Delete this question?')) return;
+      const qid = card.dataset.qid;
+      await fetch(`/admin/quizzes/${quizId}/questions/${qid}/delete`, { method: 'POST' });
+      delete window.QF_QUESTIONS_BY_ID[qid];
+      card.remove();
+      // Re-number remaining cards
+      document.querySelectorAll('.question-card').forEach((c, i) => {
+        const meta = c.querySelector('.text-xs.text-slate-500');
+        if (meta && meta.textContent.startsWith('Q')) {
+          meta.innerHTML = meta.innerHTML.replace(/^Q\d+/, 'Q' + (i + 1));
+        }
+      });
+      if (document.querySelectorAll('.question-card').length === 0 && emptyMsg) {
+        emptyMsg.classList.remove('hidden');
+      }
+      flashSaved('Question deleted.');
+    });
   }
 
   function esc(s) {
@@ -202,27 +284,6 @@
     list.appendChild(buildEditor(null));
   };
 
-  document.querySelectorAll('.delete-q-btn').forEach((btn) => {
-    btn.onclick = async () => {
-      if (!confirm('Delete this question?')) return;
-      const card = btn.closest('.question-card');
-      const qid = card.dataset.qid;
-      await fetch(`/admin/quizzes/${quizId}/questions/${qid}/delete`, { method: 'POST' });
-      window.location.reload();
-    };
-  });
-
-  document.querySelectorAll('.edit-q-btn').forEach((btn) => {
-    btn.onclick = async () => {
-      const card = btn.closest('.question-card');
-      const qid = card.dataset.qid;
-      // Pull data from page (we don't have a /api endpoint for one question, so re-fetch the edit page is overkill).
-      // Easiest: get the raw via a quick parse. For simplicity, reload after editing instead — and just open empty editor pre-filled by re-reading visible card text isn't reliable.
-      // Workaround: fetch all questions list via a JSON endpoint -- but we don't have one. Use embedded data on page.
-      const data = window.QF_QUESTIONS_BY_ID && window.QF_QUESTIONS_BY_ID[qid];
-      if (!data) { alert('Reload the page and try again.'); return; }
-      const editor = buildEditor(data);
-      card.replaceWith(editor);
-    };
-  });
+  // Bind initial server-rendered cards through the unified handler
+  document.querySelectorAll('.question-card').forEach(bindCardButtons);
 })();

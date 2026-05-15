@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Feature flags &middot; Site admin{% endblock %}
+{% block content %}
+<a href="{{ url_for('site_dashboard') }}" class="text-sm text-slate-500 hover:text-brand-700">&larr; Site admin</a>
+<h1 class="text-2xl font-bold mt-1">Feature flags</h1>
+<p class="text-sm text-slate-500 mb-6">
+  Turn whole features on or off across the entire platform. Useful while a feature is not ready,
+  or if you don't want to spend on an external API. Changes save instantly.
+</p>
+
+<div class="grid md:grid-cols-2 gap-4">
+  {% set descriptions = {
+    'feature_registration': ('Public sign-up', 'Allow new admins/teachers to register themselves. Turn OFF to lock down the platform to invited users only.'),
+    'feature_ai_quiz_gen':  ('AI quiz generator', 'Let teachers paste a document and get questions auto-generated. Requires an API key for OpenAI / Anthropic / etc.'),
+    'feature_certificates': ('PDF certificates', 'Auto-issue branded certificates with verification URL when a student passes a quiz.'),
+    'feature_live_mode':    ('Live mode', 'Kahoot-style real-time quiz sessions with a join code, live leaderboard and bar charts.'),
+    'feature_polls':        ('Polls &amp; surveys', 'Polls and surveys as a separate content type with a visual aggregate dashboard.'),
+    'feature_anti_cheat':   ('Anti-cheating tools', 'Tab-switch detection, copy/paste/right-click block, password gate, IP allow-list, dev-tools detection, fullscreen lock, auto-submit after N violations.'),
+    'feature_exports':      ('CSV / Excel export', 'Show the Export buttons on Results pages.'),
+    'feature_billing':      ('Stripe billing', 'Subscription billing for paying customers. Turn ON only after Stripe is wired.'),
+  } %}
+  {% for key, (label, desc) in descriptions.items() %}
+    <div class="bg-white border border-slate-200 rounded-lg p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex-1">
+          <p class="font-semibold">{{ label|safe }}</p>
+          <p class="text-xs text-slate-500 mt-1">{{ desc|safe }}</p>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer mt-1">
+          <input type="checkbox" data-flag="{{ key }}" {% if flags[key] %}checked{% endif %} class="sr-only peer" />
+          <div class="w-11 h-6 bg-slate-200 rounded-full peer-checked:bg-brand-600 transition relative">
+            <div class="absolute top-0.5 left-0.5 bg-white w-5 h-5 rounded-full transition peer-checked:translate-x-5"></div>
+          </div>
+        </label>
+      </div>
+      <p class="text-xs text-slate-400 mt-2 flag-status" data-status-for="{{ key }}">
+        Currently: <b class="{{ 'text-emerald-600' if flags[key] else 'text-slate-500' }}">{{ 'ON' if flags[key] else 'OFF' }}</b>
+      </p>
+    </div>
+  {% endfor %}
+</div>
+
+<script>
+(function() {
+  document.querySelectorAll('input[data-flag]').forEach(function(input) {
+    input.addEventListener('change', function() {
+      const flag = input.dataset.flag;
+      const val = input.checked;
+      const status = document.querySelector(`[data-status-for="${flag}"]`);
+      if (status) status.innerHTML = 'Saving…';
+      fetch('{{ url_for("site_features") }}', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({key: flag, value: val}),
+      }).then(r => r.json()).then(j => {
+        if (status) {
+          status.innerHTML = 'Currently: <b class="' + (val ? 'text-emerald-600' : 'text-slate-500') + '">' + (val ? 'ON' : 'OFF') + '</b>';
+        }
+      }).catch(() => {
+        if (status) status.innerHTML = '<span class="text-red-600">Save failed</span>';
+      });
+    });
+  });
+})();
+</script>
+{% endblock %}

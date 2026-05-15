@@ -106,6 +106,49 @@ def fmt_ts(ts):
 
 ASSET_VERSION = str(int(db.now_ts()))
 
+# ----- Site-wide feature flags -----
+FEATURE_DEFAULTS = {
+    "feature_registration": "1",       # allow new admin signups
+    "feature_ai_quiz_gen":  "0",       # AI quiz generation (off by default; needs API key)
+    "feature_certificates": "1",       # PDF certificates on pass
+    "feature_live_mode":    "1",       # Kahoot-style live sessions
+    "feature_polls":        "1",       # polls/surveys
+    "feature_anti_cheat":   "1",       # show anti-cheating settings panel
+    "feature_exports":      "1",       # CSV/Excel export buttons
+    "feature_billing":      "0",       # Stripe billing (off — not yet wired)
+}
+
+
+def _settings_get(key: str, default=None):
+    conn = db.get_conn()
+    try:
+        row = conn.execute("SELECT value FROM site_settings WHERE key=?", (key,)).fetchone()
+        if row and row["value"] is not None:
+            return row["value"]
+        return default if default is not None else FEATURE_DEFAULTS.get(key, "")
+    finally:
+        conn.close()
+
+
+def _settings_set(key: str, value: str):
+    conn = db.get_conn()
+    try:
+        # Upsert: try update, else insert
+        cur = conn.execute("UPDATE site_settings SET value=? WHERE key=?", (value, key))
+        if cur.rowcount == 0:
+            conn.execute("INSERT INTO site_settings(key, value) VALUES(?, ?)", (key, value))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def feature_enabled(name: str) -> bool:
+    return _settings_get(name, FEATURE_DEFAULTS.get(name, "0")) in ("1", "true", "True", "on", "yes")
+
+
+def features_all() -> dict:
+    return {k: feature_enabled(k) for k in FEATURE_DEFAULTS}
+
 
 @app.context_processor
 def inject_globals():
@@ -114,6 +157,7 @@ def inject_globals():
         "fmt_ts": fmt_ts,
         "QUESTION_TYPES": grading.QUESTION_TYPES,
         "asset_v": ASSET_VERSION,
+        "features": features_all(),
     }
 
 
@@ -181,6 +225,10 @@ def sitemap_xml():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    if not feature_enabled("feature_registration") and not session.get("uid"):
+        # If a super admin is logged in they can still create accounts via /admin/site/users
+        flash("Public sign-up is currently disabled by the administrator.", "error")
+        return redirect(url_for("login"))
     if request.method == "POST":
         email = (request.form.get("email") or "").strip().lower()
         password = request.form.get("password") or ""
@@ -404,6 +452,28 @@ def site_dashboard():
         )
     finally:
         conn.close()
+
+
+@app.route("/admin/site/features", methods=["GET", "POST"])
+@login_required
+@super_admin_required
+def site_features():
+    if request.method == "POST":
+        # Toggle one flag (JSON body) — used by auto-save JS
+        if request.is_json:
+            payload = request.get_json(silent=True) or {}
+            key = (payload.get("key") or "").strip()
+            val = payload.get("value")
+            if key not in FEATURE_DEFAULTS:
+                return jsonify({"ok": False, "error": "unknown flag"}), 400
+            _settings_set(key, "1" if val else "0")
+            return jsonify({"ok": True, "key": key, "value": "1" if val else "0"})
+        # Form submission fallback: read every flag from form
+        for k in FEATURE_DEFAULTS:
+            _settings_set(k, "1" if request.form.get(k) else "0")
+        flash("Feature flags saved.", "success")
+        return redirect(url_for("site_features"))
+    return render_template("admin/site_features.html", flags=features_all(), defaults=FEATURE_DEFAULTS)
 
 
 @app.route("/admin/site/users")
