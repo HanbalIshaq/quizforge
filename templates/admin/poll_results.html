@@ -30,6 +30,10 @@
           onsubmit="return confirm('Remove duplicate submissions? This permanently deletes older submissions and keeps only the latest one per person (matched by name + email). Cannot be undone.');">
       <button class="px-3 py-2 bg-white border border-red-200 text-red-700 rounded text-sm hover:bg-red-50">🧹 Remove duplicates</button>
     </form>
+    <form method="post" action="{{ url_for('quiz_remove_anonymous', quiz_id=quiz.id) }}" class="inline"
+          onsubmit="return confirm('Permanently delete every Anonymous / unnamed submission for this quiz? Cannot be undone.');">
+      <button class="px-3 py-2 bg-white border border-red-200 text-red-700 rounded text-sm hover:bg-red-50">🗑 Remove anonymous</button>
+    </form>
     <button id="refresh-btn" class="px-3 py-2 bg-brand-600 text-white rounded text-sm hover:bg-brand-700">↻ Refresh</button>
   </div>
 </div>

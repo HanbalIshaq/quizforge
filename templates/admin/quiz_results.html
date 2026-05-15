@@ -7,9 +7,13 @@
     <h1 class="text-2xl font-bold mt-1">Results: {{ quiz.title }}</h1>
     <p class="text-sm text-slate-500">{{ attempts|length }} attempt(s)</p>
   </div>
-  <div class="flex gap-2">
+  <div class="flex flex-wrap gap-2">
     <a href="{{ url_for('export_csv', quiz_id=quiz.id) }}" class="px-3 py-2 bg-white border border-slate-300 rounded text-sm hover:bg-slate-100">Export CSV</a>
     <a href="{{ url_for('export_xlsx', quiz_id=quiz.id) }}" class="px-3 py-2 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">Export Excel</a>
+    <form method="post" action="{{ url_for('quiz_remove_anonymous', quiz_id=quiz.id) }}" class="inline"
+          onsubmit="return confirm('Permanently delete every Anonymous / unnamed attempt for this quiz? Cannot be undone.');">
+      <button class="px-3 py-2 bg-white border border-red-200 text-red-700 rounded text-sm hover:bg-red-50">🗑 Remove anonymous</button>
+    </form>
   </div>
 </div>
 

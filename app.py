@@ -584,6 +584,27 @@ def attempt_delete(quiz_id, aid):
     return redirect(url_for("quiz_results", quiz_id=quiz_id))
 
 
+@app.route("/admin/quizzes/<int:quiz_id>/remove-anonymous", methods=["POST"])
+@login_required
+def quiz_remove_anonymous(quiz_id):
+    """Delete every attempt whose student_name is empty or literally 'Anonymous'."""
+    conn = db.get_conn()
+    try:
+        owned_quiz_or_404(conn, quiz_id, session["uid"])
+        cur = conn.execute(
+            """DELETE FROM attempts
+               WHERE quiz_id=?
+                 AND (TRIM(COALESCE(student_name, '')) = ''
+                      OR LOWER(TRIM(student_name)) = 'anonymous')""",
+            (quiz_id,),
+        )
+        conn.commit()
+        flash(f"Removed {cur.rowcount or 0} anonymous submission(s).", "success")
+    finally:
+        conn.close()
+    return redirect(url_for("quiz_results", quiz_id=quiz_id))
+
+
 @app.route("/admin/quizzes/<int:quiz_id>/dedupe-submissions", methods=["POST"])
 @login_required
 def quiz_dedupe_submissions(quiz_id):
