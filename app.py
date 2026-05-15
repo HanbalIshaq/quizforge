@@ -1902,6 +1902,32 @@ def take_quiz(code):
         conn.close()
 
 
+@app.route("/q/<code>/upload", methods=["POST"])
+def quiz_file_upload(code):
+    """Receive a single file upload for a file_upload field. Returns the public URL."""
+    conn = db.get_conn()
+    try:
+        quiz = conn.execute("SELECT id FROM quizzes WHERE share_code=?", (code,)).fetchone()
+        if not quiz:
+            return jsonify({"ok": False}), 404
+    finally:
+        conn.close()
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "No file"}), 400
+    # Sanitize filename
+    import re as _re
+    safe = _re.sub(r"[^A-Za-z0-9._-]", "_", f.filename)[:80]
+    # Per-quiz upload folder
+    folder = os.path.join("static", "uploads", f"quiz_{quiz['id']}")
+    os.makedirs(folder, exist_ok=True)
+    final = f"{db.now_ts()}_{safe}"
+    path = os.path.join(folder, final)
+    f.save(path)
+    url = url_for("static", filename=f"uploads/quiz_{quiz['id']}/{final}")
+    return jsonify({"ok": True, "url": url, "name": safe, "size": os.path.getsize(path)})
+
+
 @app.route("/q/<code>/proctor", methods=["POST"])
 def quiz_save_snapshot(code):
     """Save a camera snapshot for a proctored exam attempt.
@@ -2166,7 +2192,28 @@ def _parse_submitted(qtype: str, raw: list[str]):
             return json.loads(raw[0]) if raw else None
         except Exception:
             return None
-    # text-based (short_answer, long_answer, email, phone, date, etc.)
+    if qtype == "slider":
+        try:
+            return float(raw[0])
+        except Exception:
+            return None
+    if qtype == "consent":
+        return bool(raw and raw[0] in ("on", "1", "true", "yes"))
+    if qtype in ("address", "full_name"):
+        # Sent as JSON-encoded string in a hidden input
+        try:
+            return json.loads(raw[0]) if raw else None
+        except Exception:
+            return raw[0] if raw else None
+    if qtype == "section_break":
+        return None  # informational, no answer
+    if qtype == "signature":
+        # Data URL (PNG); store as-is (capped on save endpoint)
+        return raw[0] if raw else None
+    if qtype == "file_upload":
+        # Stored as URL after async upload
+        return raw[0] if raw else None
+    # text-based (short_answer, long_answer, email, phone, date, url, time, datetime, etc.)
     return raw[0] if len(raw) == 1 else raw
 
 

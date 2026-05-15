@@ -258,6 +258,76 @@
                 </div>
               {% endfor %}
             </div>
+          {% elif q.type == 'url' %}
+            <input type="url" name="q_{{ q.id }}" class="w-full px-3 py-2 border rounded" placeholder="https://example.com"
+                   value="{{ saved or '' }}" />
+          {% elif q.type == 'time' %}
+            <input type="time" name="q_{{ q.id }}" class="w-full px-3 py-2 border rounded"
+                   value="{{ saved or '' }}" />
+          {% elif q.type == 'datetime' %}
+            <input type="datetime-local" name="q_{{ q.id }}" class="w-full px-3 py-2 border rounded"
+                   value="{{ saved or '' }}" />
+          {% elif q.type == 'slider' %}
+            {% set s_min = q.correct_answers[0] if q.correct_answers|length > 0 else 0 %}
+            {% set s_max = q.correct_answers[1] if q.correct_answers|length > 1 else 100 %}
+            <div class="flex items-center gap-3">
+              <span class="text-xs text-slate-500 w-10 text-right">{{ s_min }}</span>
+              <input type="range" name="q_{{ q.id }}" min="{{ s_min }}" max="{{ s_max }}"
+                     value="{{ saved or ((s_min + s_max) // 2) }}"
+                     class="flex-1 slider-input"
+                     data-target="slider-out-{{ q.id }}" />
+              <span class="text-xs text-slate-500 w-10">{{ s_max }}</span>
+              <span class="ml-2 px-2 py-1 bg-brand-50 text-brand-700 rounded font-mono text-sm" id="slider-out-{{ q.id }}">{{ saved or ((s_min + s_max) // 2) }}</span>
+            </div>
+          {% elif q.type == 'address' %}
+            {% set addr = saved if (saved is mapping) else {} %}
+            <input type="hidden" name="q_{{ q.id }}" class="address-answer" data-qid="{{ q.id }}" />
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 address-block" data-qid="{{ q.id }}">
+              <input class="addr-street col-span-full px-3 py-2 border rounded" placeholder="Street address" value="{{ addr.street or '' }}" />
+              <input class="addr-street2 col-span-full px-3 py-2 border rounded" placeholder="Address line 2 (optional)" value="{{ addr.street2 or '' }}" />
+              <input class="addr-city px-3 py-2 border rounded" placeholder="City" value="{{ addr.city or '' }}" />
+              <input class="addr-state px-3 py-2 border rounded" placeholder="State / Province" value="{{ addr.state or '' }}" />
+              <input class="addr-zip px-3 py-2 border rounded" placeholder="ZIP / Postal code" value="{{ addr.zip or '' }}" />
+              <input class="addr-country px-3 py-2 border rounded" placeholder="Country" value="{{ addr.country or '' }}" />
+            </div>
+          {% elif q.type == 'full_name' %}
+            {% set name = saved if (saved is mapping) else {} %}
+            <input type="hidden" name="q_{{ q.id }}" class="name-answer" data-qid="{{ q.id }}" />
+            <div class="grid grid-cols-2 gap-2 name-block" data-qid="{{ q.id }}">
+              <input class="name-first px-3 py-2 border rounded" placeholder="First name" value="{{ name.first or '' }}" />
+              <input class="name-last px-3 py-2 border rounded" placeholder="Last name" value="{{ name.last or '' }}" />
+            </div>
+          {% elif q.type == 'file_upload' %}
+            <input type="hidden" name="q_{{ q.id }}" class="file-answer" data-qid="{{ q.id }}"
+                   value="{{ saved or '' }}" />
+            <div class="file-upload-block flex items-center gap-3" data-qid="{{ q.id }}">
+              <input type="file" class="file-input text-sm" />
+              <span class="file-status text-xs text-slate-500">
+                {% if saved %}<a href="{{ saved }}" class="text-brand-700 hover:underline" target="_blank">Previously uploaded</a>{% endif %}
+              </span>
+            </div>
+            <p class="text-xs text-slate-400 mt-1">Max 16 MB. PDF, image, doc, spreadsheet, etc.</p>
+          {% elif q.type == 'signature' %}
+            <input type="hidden" name="q_{{ q.id }}" class="signature-answer" data-qid="{{ q.id }}"
+                   value="{{ saved or '' }}" />
+            <div class="signature-block">
+              <canvas class="signature-pad border-2 border-slate-300 rounded bg-white block"
+                      width="500" height="160" data-qid="{{ q.id }}"
+                      style="touch-action: none; max-width: 100%;"></canvas>
+              <div class="flex items-center gap-2 mt-1">
+                <button type="button" class="signature-clear text-xs px-2 py-1 bg-slate-100 rounded hover:bg-slate-200">Clear</button>
+                <span class="text-xs text-slate-500">Sign with your mouse or finger.</span>
+              </div>
+            </div>
+          {% elif q.type == 'consent' %}
+            <label class="flex items-start gap-2 p-3 bg-slate-50 border rounded cursor-pointer">
+              <input type="checkbox" name="q_{{ q.id }}" value="on" {% if saved %}checked{% endif %} class="mt-1" />
+              <span class="text-sm">{{ q.explanation or 'I have read and agree to the terms.' }}</span>
+            </label>
+          {% elif q.type == 'section_break' %}
+            <div class="bg-brand-50 border-l-4 border-brand-500 rounded p-4 text-sm text-slate-700">
+              {{ q.explanation or 'Continue to the next part.' }}
+            </div>
           {% elif q.type == 'hotspot' %}
             <input type="hidden" name="q_{{ q.id }}" class="hotspot-answer" data-qid="{{ q.id }}" />
             <div class="hotspot-block relative inline-block" data-qid="{{ q.id }}">
@@ -679,6 +749,113 @@
         }
       }, 2000);
     }
+
+    // ===== FORM FIELD CONTROLLERS =====
+    // Slider — live readout
+    document.querySelectorAll('.slider-input').forEach(function(s) {
+      const out = document.getElementById(s.dataset.target);
+      s.addEventListener('input', () => { if (out) out.textContent = s.value; });
+    });
+    // Address — combine sub-fields into JSON
+    document.querySelectorAll('.address-block').forEach(function(block) {
+      const hidden = document.querySelector('.address-answer[data-qid="' + block.dataset.qid + '"]');
+      const update = () => {
+        const v = {
+          street:  block.querySelector('.addr-street').value.trim(),
+          street2: block.querySelector('.addr-street2').value.trim(),
+          city:    block.querySelector('.addr-city').value.trim(),
+          state:   block.querySelector('.addr-state').value.trim(),
+          zip:     block.querySelector('.addr-zip').value.trim(),
+          country: block.querySelector('.addr-country').value.trim(),
+        };
+        const anyValue = Object.values(v).some(x => x);
+        if (hidden) hidden.value = anyValue ? JSON.stringify(v) : '';
+      };
+      block.addEventListener('input', update);
+      update();
+    });
+    // Full name
+    document.querySelectorAll('.name-block').forEach(function(block) {
+      const hidden = document.querySelector('.name-answer[data-qid="' + block.dataset.qid + '"]');
+      const update = () => {
+        const v = {
+          first: block.querySelector('.name-first').value.trim(),
+          last:  block.querySelector('.name-last').value.trim(),
+        };
+        if (hidden) hidden.value = (v.first || v.last) ? JSON.stringify(v) : '';
+      };
+      block.addEventListener('input', update);
+      update();
+    });
+    // File upload — async POST to /q/<code>/upload, store URL in hidden field
+    document.querySelectorAll('.file-upload-block').forEach(function(block) {
+      const fileInput = block.querySelector('.file-input');
+      const hidden = document.querySelector('.file-answer[data-qid="' + block.dataset.qid + '"]');
+      const status = block.querySelector('.file-status');
+      fileInput.addEventListener('change', async () => {
+        const f = fileInput.files[0];
+        if (!f) return;
+        status.textContent = 'Uploading…';
+        const fd = new FormData();
+        fd.append('file', f);
+        try {
+          const r = await fetch('/q/' + code + '/upload', { method: 'POST', body: fd });
+          const j = await r.json();
+          if (j.ok) {
+            hidden.value = j.url;
+            status.innerHTML = '✓ Uploaded — <a class="text-brand-700 hover:underline" target="_blank" href="' + j.url + '">' + (j.name || 'file') + '</a>';
+          } else {
+            status.textContent = '✗ ' + (j.error || 'Upload failed');
+          }
+        } catch (e) {
+          status.textContent = '✗ Upload failed: ' + e.message;
+        }
+      });
+    });
+    // Signature — canvas drawing
+    document.querySelectorAll('.signature-pad').forEach(function(canvas) {
+      const ctx = canvas.getContext('2d');
+      const hidden = document.querySelector('.signature-answer[data-qid="' + canvas.dataset.qid + '"]');
+      let drawing = false, lastX = 0, lastY = 0;
+      ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+      // Restore prior signature if any
+      if (hidden && hidden.value) {
+        const img = new Image();
+        img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        img.src = hidden.value;
+      }
+      const pos = (e) => {
+        const r = canvas.getBoundingClientRect();
+        const t = (e.touches && e.touches[0]) || e;
+        return { x: (t.clientX - r.left) * (canvas.width / r.width),
+                 y: (t.clientY - r.top) * (canvas.height / r.height) };
+      };
+      const start = (e) => { e.preventDefault(); drawing = true; const p = pos(e); lastX = p.x; lastY = p.y; };
+      const draw = (e) => {
+        if (!drawing) return; e.preventDefault();
+        const p = pos(e);
+        ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.stroke();
+        lastX = p.x; lastY = p.y;
+      };
+      const end = () => {
+        if (drawing) {
+          drawing = false;
+          if (hidden) hidden.value = canvas.toDataURL('image/png');
+        }
+      };
+      canvas.addEventListener('mousedown', start);
+      canvas.addEventListener('mousemove', draw);
+      canvas.addEventListener('mouseup', end);
+      canvas.addEventListener('mouseleave', end);
+      canvas.addEventListener('touchstart', start);
+      canvas.addEventListener('touchmove', draw);
+      canvas.addEventListener('touchend', end);
+      const clearBtn = canvas.parentElement.querySelector('.signature-clear');
+      if (clearBtn) clearBtn.addEventListener('click', () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (hidden) hidden.value = '';
+      });
+    });
 
     // ===== INTERACTIVE TYPES: matching / ordering / drag_drop / hotspot =====
     // Matching — when a dropdown changes, collect picks into a JSON array on the hidden input
