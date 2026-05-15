@@ -41,6 +41,7 @@
         <option value="exam" {% if quiz.kind=='exam' %}selected{% endif %}>Exam / Quiz</option>
         <option value="poll" {% if quiz.kind=='poll' %}selected{% endif %}>Live Poll</option>
         <option value="survey" {% if quiz.kind=='survey' %}selected{% endif %}>Survey</option>
+        <option value="form" {% if quiz.kind=='form' %}selected{% endif %}>Form (collect data)</option>
       </select>
       {% if quiz.kind == 'exam' %}
         <label class="block text-xs text-slate-600">
@@ -237,8 +238,11 @@
   <!-- Questions -->
   <section class="lg:col-span-2 space-y-3">
     <div class="flex items-center justify-between">
-      <h2 class="font-semibold">Questions ({{ questions|length }})</h2>
-      <button id="add-q-btn" class="px-3 py-2 bg-brand-600 text-white rounded text-sm hover:bg-brand-700">+ Add question</button>
+      <h2 class="font-semibold">
+        {% if quiz.kind == 'form' %}Form fields{% else %}Questions{% endif %} ({{ questions|length }})
+      </h2>
+      <button id="add-q-btn" class="px-3 py-2 bg-brand-600 text-white rounded text-sm hover:bg-brand-700">
+        + Add {% if quiz.kind == 'form' %}field{% else %}question{% endif %}</button>
     </div>
     <div id="questions-list" class="space-y-3">
       {% for q in questions %}

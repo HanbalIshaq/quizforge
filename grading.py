@@ -79,4 +79,10 @@ QUESTION_TYPES = [
     ("poll", "Poll choice (no correct answer)"),
     ("open_ended", "Open-ended (free text, ungraded)"),
     ("word_cloud", "Word Cloud (live)"),
+    # Form fields (for kind='form' — JotForm-style data collection)
+    ("email", "Email address (form field)"),
+    ("phone", "Phone number (form field)"),
+    ("date", "Date picker (form field)"),
+    ("number", "Number (form field)"),
+    ("dropdown", "Dropdown / Select (form field)"),
 ]

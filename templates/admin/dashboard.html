@@ -22,8 +22,8 @@
   </div>
 </div>
 
-{# ───── 4 BIG content-type cards ───── #}
-<section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+{# ───── 5 BIG content-type cards ───── #}
+<section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
   {# Exams / Quizzes #}
   <div class="bg-white border border-slate-200 rounded-xl p-5 hover:border-brand-400 transition">
     <div class="flex items-start justify-between mb-2">
@@ -77,17 +77,35 @@
   </div>
   {% endif %}
 
-  {# Live sessions #}
+  {# Forms (JotForm-style) #}
+  <div class="bg-white border border-slate-200 rounded-xl p-5 hover:border-purple-400 transition">
+    <div class="flex items-start justify-between mb-2">
+      <div class="w-10 h-10 rounded-lg bg-purple-100 text-purple-700 grid place-items-center text-xl">📝</div>
+      <span class="text-2xl font-bold text-purple-700">{{ counts.form or 0 }}</span>
+    </div>
+    <p class="font-semibold mt-2">Forms</p>
+    <p class="text-xs text-slate-500 mt-1">Collect data — registration, lead capture, contact, surveys with fields.</p>
+    <form method="post" action="{{ url_for('quiz_new') }}" class="mt-3 flex gap-1.5">
+      <input type="hidden" name="kind" value="form" />
+      <input name="title" placeholder="New form title" required
+             class="flex-1 px-2 py-1.5 border border-slate-300 rounded text-sm min-w-0" />
+      <button class="px-3 py-1.5 bg-purple-600 text-white rounded text-sm hover:bg-purple-700 whitespace-nowrap">+ New</button>
+    </form>
+    <a href="?kind=form" class="text-xs text-slate-500 hover:text-purple-700 mt-2 inline-block">View all forms &rarr;</a>
+  </div>
+
+  {# Live sessions — clickable #}
   {% if features.feature_live_mode %}
-  <div class="bg-white border border-slate-200 rounded-xl p-5 hover:border-rose-400 transition">
+  <a href="{{ url_for('live_sessions_list') }}"
+     class="block bg-white border border-slate-200 rounded-xl p-5 hover:border-rose-400 hover:shadow-md transition">
     <div class="flex items-start justify-between mb-2">
       <div class="w-10 h-10 rounded-lg bg-rose-100 text-rose-700 grid place-items-center text-xl">🎮</div>
-      <span class="text-2xl font-bold text-rose-700">Live</span>
+      <span class="text-2xl font-bold text-rose-700">{{ live_count }}</span>
     </div>
     <p class="font-semibold mt-2">Live Sessions</p>
-    <p class="text-xs text-slate-500 mt-1">Run a real-time Kahoot-style quiz with a 6-char join code.</p>
-    <p class="text-xs text-slate-400 mt-3">Pick any quiz below and click <b>Go Live</b> on its row.</p>
-  </div>
+    <p class="text-xs text-slate-500 mt-1">Real-time Kahoot-style quizzes with a join code. Active &amp; past sessions.</p>
+    <p class="text-xs text-rose-600 mt-3 font-medium">View sessions &rarr;</p>
+  </a>
   {% endif %}
 </section>
 
@@ -130,6 +148,8 @@
                 <span class="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">Poll</span>
               {% elif q.kind == 'survey' %}
                 <span class="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">Survey</span>
+              {% elif q.kind == 'form' %}
+                <span class="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-800">Form</span>
               {% else %}
                 <span class="text-xs px-1.5 py-0.5 rounded bg-brand-100 text-brand-700">Exam</span>
               {% endif %}

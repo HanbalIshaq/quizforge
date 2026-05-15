@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Live Sessions &middot; QuizForge{% endblock %}
+{% block content %}
+<a href="{{ url_for('admin_dashboard') }}" class="text-sm text-slate-500 hover:text-brand-700">&larr; Dashboard</a>
+<div class="flex items-start justify-between mt-1 mb-6 gap-3 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold">🎮 Live Sessions</h1>
+    <p class="text-sm text-slate-500">All real-time quiz sessions you've ever hosted. Click a row to jump into the host panel.</p>
+  </div>
+  <form method="post" id="start-live-form" class="flex items-end gap-2">
+    <label class="block text-xs text-slate-600">
+      Start new session from:
+      <select id="start-quiz-id" class="block mt-1 px-3 py-2 border border-slate-300 rounded text-sm">
+        {% for q in my_exams %}
+          <option value="{{ q.id }}">{{ q.title }}</option>
+        {% else %}
+          <option value="">(no exams yet — create one first)</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="button" id="start-live-btn" class="px-3 py-2 bg-rose-600 text-white rounded text-sm hover:bg-rose-700">Start Live</button>
+  </form>
+</div>
+
+{% if sessions %}
+  <div class="bg-white border border-slate-200 rounded-lg overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-left text-slate-600">
+        <tr>
+          <th class="px-4 py-2">Code</th>
+          <th class="px-4 py-2">Quiz</th>
+          <th class="px-4 py-2">Status</th>
+          <th class="px-4 py-2">Started</th>
+          <th class="px-4 py-2">Ended</th>
+          <th class="px-4 py-2"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in sessions %}
+          <tr class="border-t border-slate-200 hover:bg-slate-50">
+            <td class="px-4 py-2 font-mono text-xs">{{ s.join_code }}</td>
+            <td class="px-4 py-2">{{ s.quiz_title }}</td>
+            <td class="px-4 py-2">
+              {% if s.status == 'running' %}<span class="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Running</span>
+              {% elif s.status == 'waiting' %}<span class="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Waiting</span>
+              {% else %}<span class="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">Finished</span>{% endif %}
+            </td>
+            <td class="px-4 py-2 text-slate-500 text-xs">{{ s.started_at_fmt }}</td>
+            <td class="px-4 py-2 text-slate-500 text-xs">{{ s.ended_at_fmt or '—' }}</td>
+            <td class="px-4 py-2 text-right">
+              {% if s.status != 'finished' %}
+                <a href="{{ url_for('live_host', session_id=s.id) }}" class="text-xs px-2 py-1 bg-rose-600 text-white rounded hover:bg-rose-700">Open host panel</a>
+              {% else %}
+                <span class="text-xs text-slate-400">closed</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <div class="bg-white border border-dashed border-slate-300 rounded-lg p-12 text-center text-slate-500">
+    <p>No live sessions yet. Pick a quiz above and click <b>Start Live</b>.</p>
+  </div>
+{% endif %}
+
+<script>
+document.getElementById('start-live-btn').onclick = function() {
+  const qid = document.getElementById('start-quiz-id').value;
+  if (!qid) { alert('Create an exam first.'); return; }
+  const f = document.getElementById('start-live-form');
+  f.action = '/admin/quizzes/' + qid + '/live/start';
+  f.submit();
+};
+</script>
+{% endblock %}

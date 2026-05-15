@@ -186,6 +186,25 @@
           {% elif q.type == 'short_answer' or q.type == 'fill_blank' %}
             <input name="q_{{ q.id }}" class="w-full px-3 py-2 border rounded" placeholder="Your answer..."
                    value="{{ saved or '' }}" />
+          {% elif q.type == 'email' %}
+            <input type="email" name="q_{{ q.id }}" class="w-full px-3 py-2 border rounded" placeholder="you@example.com"
+                   value="{{ saved or '' }}" />
+          {% elif q.type == 'phone' %}
+            <input type="tel" name="q_{{ q.id }}" class="w-full px-3 py-2 border rounded" placeholder="+1 555-0100"
+                   value="{{ saved or '' }}" />
+          {% elif q.type == 'date' %}
+            <input type="date" name="q_{{ q.id }}" class="w-full px-3 py-2 border rounded"
+                   value="{{ saved or '' }}" />
+          {% elif q.type == 'number' %}
+            <input type="number" name="q_{{ q.id }}" class="w-full px-3 py-2 border rounded" placeholder="0"
+                   value="{{ saved or '' }}" step="any" />
+          {% elif q.type == 'dropdown' %}
+            <select name="q_{{ q.id }}" class="w-full px-3 py-2 border rounded">
+              <option value="">— Choose —</option>
+              {% for orig_idx, opt in q.options_with_idx %}
+                <option value="{{ orig_idx }}" {% if saved is not none and saved == orig_idx %}selected{% endif %}>{{ opt }}</option>
+              {% endfor %}
+            </select>
           {% elif q.type == 'long_answer' or q.type == 'open_ended' or q.type == 'word_cloud' %}
             <textarea name="q_{{ q.id }}" rows="4" class="w-full px-3 py-2 border rounded" placeholder="Your answer...">{{ saved or '' }}</textarea>
           {% elif q.type == 'rating' %}

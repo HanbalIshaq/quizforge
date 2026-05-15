@@ -204,7 +204,7 @@ def quiz_kind_counts(user_id: int) -> dict:
     """Counts of quizzes by kind, for the dashboard cards."""
     conn = db.get_conn()
     try:
-        out = {"all": 0, "exam": 0, "poll": 0, "survey": 0}
+        out = {"all": 0, "exam": 0, "poll": 0, "survey": 0, "form": 0}
         for r in conn.execute(
             "SELECT kind, COUNT(*) AS c FROM quizzes WHERE user_id=? GROUP BY kind",
             (user_id,),
@@ -212,6 +212,18 @@ def quiz_kind_counts(user_id: int) -> dict:
             out["all"] += r["c"]
             out[r["kind"]] = r["c"]
         return out
+    finally:
+        conn.close()
+
+
+def live_session_count(user_id: int) -> int:
+    conn = db.get_conn()
+    try:
+        return conn.execute(
+            """SELECT COUNT(*) AS c FROM live_sessions ls
+               JOIN quizzes q ON q.id = ls.quiz_id WHERE q.user_id=?""",
+            (user_id,),
+        ).fetchone()["c"]
     finally:
         conn.close()
 
@@ -650,7 +662,36 @@ def admin_dashboard():
             ).fetchall()
         quizzes = [dict(r) for r in rows]
         counts = quiz_kind_counts(session["uid"])
-        return render_template("admin/dashboard.html", quizzes=quizzes, counts=counts)
+        return render_template(
+            "admin/dashboard.html",
+            quizzes=quizzes, counts=counts,
+            live_count=live_session_count(session["uid"]),
+        )
+    finally:
+        conn.close()
+
+
+@app.route("/admin/live")
+@login_required
+def live_sessions_list():
+    conn = db.get_conn()
+    try:
+        sessions = [dict(r) for r in conn.execute(
+            """SELECT ls.*, q.title AS quiz_title FROM live_sessions ls
+               JOIN quizzes q ON q.id = ls.quiz_id
+               WHERE q.user_id=?
+               ORDER BY ls.started_at DESC LIMIT 50""",
+            (session["uid"],),
+        ).fetchall()]
+        for s in sessions:
+            s["started_at_fmt"] = fmt_ts(s["started_at"])
+            s["ended_at_fmt"] = fmt_ts(s["ended_at"])
+        # Also: list of exams to start a new session from
+        my_exams = [dict(r) for r in conn.execute(
+            "SELECT id, title FROM quizzes WHERE user_id=? AND kind='exam' ORDER BY updated_at DESC",
+            (session["uid"],),
+        ).fetchall()]
+        return render_template("admin/live_list.html", sessions=sessions, my_exams=my_exams)
     finally:
         conn.close()
 
@@ -671,7 +712,7 @@ def quiz_new():
             return redirect(url_for("admin_dashboard"))
     title = (request.form.get("title") or "Untitled quiz").strip()
     kind = (request.form.get("kind") or "exam").strip()
-    if kind not in ("exam", "poll", "survey"):
+    if kind not in ("exam", "poll", "survey", "form"):
         kind = "exam"
     code = db.unique_code("quizzes", "share_code", 7)
     # Auto-defaults per kind so behavior is meaningfully different
@@ -982,7 +1023,7 @@ def quiz_set_setting(quiz_id):
         value = (str(raw or "")).strip()
         if field == "quiz_password" and not value:
             value = None
-        elif field == "kind" and value not in ("exam", "poll", "survey"):
+        elif field == "kind" and value not in ("exam", "poll", "survey", "form"):
             return jsonify({"ok": False, "error": "invalid kind"}), 400
     conn = db.get_conn()
     try:
@@ -1274,8 +1315,8 @@ def quiz_results(quiz_id):
             return ((a.get("student_name") or "").strip().lower(),
                     (a.get("student_email") or "").strip().lower())
 
-        if quiz["kind"] in ("poll", "survey"):
-            # For polls/surveys: only collapse rows when we can confidently say two attempts
+        if quiz["kind"] in ("poll", "survey", "form"):
+            # For polls/surveys/forms: only collapse rows when we can confidently say two attempts
             # are the same person — i.e. when an email is provided. Without an email we
             # cannot tell "Alice #1" apart from "Alice #2", so we leave them as separate rows
             # (the admin can delete unwanted ones individually).
@@ -1414,7 +1455,7 @@ def quiz_results(quiz_id):
                 "text_answers": text_answers,
                 "text_answers_with_names": text_answers_with_names,
             })
-        if quiz["kind"] in ("poll", "survey"):
+        if quiz["kind"] in ("poll", "survey", "form"):
             return render_template(
                 "admin/poll_results.html",
                 quiz=dict(quiz), attempts=attempts, stats=stats,
@@ -1741,13 +1782,14 @@ def take_quiz(code):
         if request.method == "POST":
             is_scored = quiz["kind"] == "exam"
             is_anonymous = quiz["kind"] == "survey"
+            is_form = quiz["kind"] == "form"
             student_name = (request.form.get("student_name") or "").strip() or "Anonymous"
             student_email = (request.form.get("student_email") or "").strip()
             now = db.now_ts()
-            # For polls/surveys: if this respondent already submitted, route them to their existing result.
+            # For polls/surveys/forms: if this respondent already submitted, route them to their existing result.
             # Only block when we can confidently identify the same person (email present).
             # Without an email, two people with the same name are treated as different respondents.
-            if quiz["kind"] in ("poll", "survey") and student_email:
+            if quiz["kind"] in ("poll", "survey", "form") and student_email:
                 existing = conn.execute(
                     """SELECT id FROM attempts
                        WHERE quiz_id=? AND submitted_at IS NOT NULL
@@ -2095,12 +2137,17 @@ def _parse_submitted(qtype: str, raw: list[str]):
             return None
     if qtype == "mcq_multi":
         return [int(x) for x in raw if x.strip().isdigit()]
-    if qtype in ("rating", "nps"):
+    if qtype in ("rating", "nps", "number"):
+        try:
+            return int(raw[0]) if qtype != "number" else float(raw[0])
+        except Exception:
+            return None
+    if qtype == "dropdown":
         try:
             return int(raw[0])
         except Exception:
             return None
-    # text-based
+    # text-based (short_answer, long_answer, email, phone, date, etc.)
     return raw[0] if len(raw) == 1 else raw
 
 
