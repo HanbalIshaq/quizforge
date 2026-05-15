@@ -94,14 +94,22 @@
           Block right-click menu</label>
         <label class="flex items-center gap-2"><input type="checkbox" data-field="block_selection" {% if quiz.block_selection %}checked{% endif %}>
           Block text selection (prevents reading-friendly cheating)</label>
+        <label class="flex items-center gap-2"><input type="checkbox" data-field="detect_devtools" {% if quiz.detect_devtools %}checked{% endif %}>
+          Detect browser dev-tools open</label>
         <label class="block text-xs text-slate-600">
           Auto-submit after this many violations (0 = warn only)
           <input type="number" data-field="violation_limit" value="{{ quiz.violation_limit or 0 }}" min="0" max="50"
                  class="w-full mt-1 px-3 py-2 border rounded" />
         </label>
+        <label class="block text-xs text-slate-600">
+          IP allow-list (comma- or newline-separated IPs and CIDR ranges; empty = open)
+          <textarea data-field="ip_allowlist" rows="2"
+                    class="w-full mt-1 px-3 py-2 border rounded font-mono"
+                    placeholder="e.g. 203.0.113.5, 198.51.100.0/24">{{ quiz.ip_allowlist or '' }}</textarea>
+        </label>
       </div>
       <p class="text-xs text-slate-400 mt-3">
-        Coming next: IP allow-list, webcam snapshots, face & object detection.
+        Coming next: webcam snapshots, face & object detection.
       </p>
     </details>
     {% endif %}

@@ -86,6 +86,7 @@
         data-anti-rightclick="{{ '1' if quiz.anti_rightclick else '0' }}"
         data-block-selection="{{ '1' if quiz.block_selection else '0' }}"
         data-violation-limit="{{ quiz.violation_limit or 0 }}"
+        data-detect-devtools="{{ '1' if quiz.detect_devtools else '0' }}"
         {% if quiz.block_selection %}style="user-select:none; -webkit-user-select:none;"{% endif %}>
     <div id="student-info" class="bg-white border border-slate-200 rounded-lg p-5 space-y-3">
       {% if quiz.require_name %}
@@ -420,6 +421,7 @@
     const antiRight     = form.dataset.antiRightclick === '1';
     const blockSel      = form.dataset.blockSelection === '1';
     const vLimit        = parseInt(form.dataset.violationLimit || '0', 10);
+    const detectDevtools = form.dataset.detectDevtools === '1';
     let violationCount  = 0;
 
     function showViolationBanner(msg) {
@@ -492,6 +494,33 @@
     if (blockSel) {
       document.addEventListener('selectstart', function(e) { e.preventDefault(); });
     }
+
+    // Dev-tools open detection — height/width gap heuristic
+    if (detectDevtools) {
+      let dtReported = false;
+      setInterval(function() {
+        const threshold = 160;
+        const wDiff = window.outerWidth - window.innerWidth;
+        const hDiff = window.outerHeight - window.innerHeight;
+        const open = wDiff > threshold || hDiff > threshold;
+        if (open && !dtReported && !isSubmitting) {
+          dtReported = true;
+          reportViolation('devtools_open', `wDiff=${wDiff} hDiff=${hDiff}`);
+          setTimeout(function() { dtReported = false; }, 30000);
+        }
+      }, 2000);
+    }
+
+    // Multi-tab detection — same student, same quiz open in 2 tabs of the same browser
+    try {
+      const channel = new BroadcastChannel('quizforge-attempt-' + attemptId);
+      channel.postMessage({ kind: 'hello' });
+      channel.onmessage = function(ev) {
+        if (ev && ev.data && ev.data.kind === 'hello' && !isSubmitting) {
+          reportViolation('multi_tab', 'same attempt opened in another tab');
+        }
+      };
+    } catch (_) { /* BroadcastChannel unsupported — silently skip */ }
 
     // Fullscreen requirement
     function enterFullscreen() {

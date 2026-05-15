@@ -45,6 +45,13 @@ REQUIRE_APPROVAL = os.environ.get("REQUIRE_APPROVAL", "").lower() in ("1", "true
 # Maps a socket sid to the live session_id it joined, for routing answers / cleanup
 SID_TO_SESSION: dict[str, int] = {}
 
+# In-memory rate limiter for login (IP -> [timestamps])
+LOGIN_ATTEMPTS: dict[str, list[float]] = defaultdict(list)
+LOGIN_WINDOW_SECS = 15 * 60
+LOGIN_MAX_PER_WINDOW = 8
+ACCOUNT_LOCKOUT_THRESHOLD = 10
+ACCOUNT_LOCKOUT_DURATION = 60 * 60  # 1 hour
+
 
 # ---------- helpers ----------
 
@@ -214,14 +221,46 @@ def register():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
+        import time as _time
+        ip = request.remote_addr or "?"
+        now_f = _time.time()
+        # IP-level rate limit
+        recent = [t for t in LOGIN_ATTEMPTS[ip] if now_f - t < LOGIN_WINDOW_SECS]
+        LOGIN_ATTEMPTS[ip] = recent
+        if len(recent) >= LOGIN_MAX_PER_WINDOW:
+            flash("Too many login attempts from this IP. Try again in 15 minutes.", "error")
+            return render_template("login.html", form=request.form), 429
+        LOGIN_ATTEMPTS[ip].append(now_f)
+
         email = (request.form.get("email") or "").strip().lower()
         password = request.form.get("password") or ""
         conn = db.get_conn()
         try:
             row = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+            # Account-level lockout check
+            if row and row["locked_until"] and int(row["locked_until"]) > db.now_ts():
+                remain = (int(row["locked_until"]) - db.now_ts()) // 60 + 1
+                flash(f"This account is temporarily locked after too many failed logins. Try again in {remain} minute(s) or reset your password.", "error")
+                return render_template("login.html", form=request.form), 423
             if not row or not bcrypt.checkpw(password.encode(), row["password_hash"].encode()):
-                flash("Invalid email or password.", "error")
-                return render_template("login.html", form=request.form)
+                if row:
+                    new_fails = (row["failed_login_count"] or 0) + 1
+                    if new_fails >= ACCOUNT_LOCKOUT_THRESHOLD:
+                        conn.execute(
+                            "UPDATE users SET failed_login_count=?, locked_until=? WHERE id=?",
+                            (new_fails, db.now_ts() + ACCOUNT_LOCKOUT_DURATION, row["id"]),
+                        )
+                        flash("Too many failed logins — this account is now locked for 1 hour. Reset your password to recover faster.", "error")
+                    else:
+                        conn.execute(
+                            "UPDATE users SET failed_login_count=? WHERE id=?",
+                            (new_fails, row["id"]),
+                        )
+                        flash("Invalid email or password.", "error")
+                    conn.commit()
+                else:
+                    flash("Invalid email or password.", "error")
+                return render_template("login.html", form=request.form), 401
             if row["is_suspended"]:
                 flash("This account is suspended. Contact the site administrator.", "error")
                 return render_template("login.html", form=request.form)
@@ -229,7 +268,10 @@ def login():
                 flash("Your account is awaiting administrator approval.", "error")
                 return render_template("login.html", form=request.form)
             session["uid"] = row["id"]
-            conn.execute("UPDATE users SET last_login_at=? WHERE id=?", (db.now_ts(), row["id"]))
+            conn.execute(
+                "UPDATE users SET failed_login_count=0, locked_until=NULL, last_login_at=? WHERE id=?",
+                (db.now_ts(), row["id"]),
+            )
             conn.commit()
             nxt = request.args.get("next") or url_for("admin_dashboard")
             return redirect(nxt)
@@ -242,6 +284,70 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("home"))
+
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    """Token-based password reset. Generates a one-time reset link with 15-min expiry.
+    Without SMTP configured, the link is logged + shown on screen (set SHOW_RESET_LINK=1
+    to surface it to the user). In production: add SendGrid/SMTP to email it automatically."""
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip().lower()
+        if not email:
+            flash("Enter your email.", "error")
+            return render_template("forgot_password.html")
+        conn = db.get_conn()
+        try:
+            row = conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
+            if row:
+                import secrets as _secrets
+                tok = _secrets.token_urlsafe(32)
+                conn.execute(
+                    "INSERT INTO password_resets(user_id, token, created_at, expires_at) VALUES(?,?,?,?)",
+                    (row["id"], tok, db.now_ts(), db.now_ts() + 900),
+                )
+                conn.commit()
+                reset_url = url_for("reset_password", token=tok, _external=True)
+                app.logger.info("Password reset link for %s -> %s", email, reset_url)
+                if os.environ.get("SHOW_RESET_LINK", "").lower() in ("1", "true", "yes"):
+                    flash(f"Password reset link (copy &amp; paste): {reset_url}", "success")
+            flash("If an account exists for that email, a password reset link was generated. The link expires in 15 minutes.", "success")
+            return redirect(url_for("login"))
+        finally:
+            conn.close()
+    return render_template("forgot_password.html")
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    conn = db.get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM password_resets WHERE token=?", (token,)
+        ).fetchone()
+        if not row or row["used_at"] or row["expires_at"] < db.now_ts():
+            flash("Reset link is invalid or has expired. Request a new one.", "error")
+            return redirect(url_for("forgot_password"))
+        if request.method == "POST":
+            password = request.form.get("password") or ""
+            if len(password) < 6:
+                flash("Password must be at least 6 characters.", "error")
+                return render_template("reset_password.html", token=token)
+            ph = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+            conn.execute(
+                "UPDATE users SET password_hash=?, failed_login_count=0, locked_until=NULL WHERE id=?",
+                (ph, row["user_id"]),
+            )
+            conn.execute(
+                "UPDATE password_resets SET used_at=? WHERE id=?",
+                (db.now_ts(), row["id"]),
+            )
+            conn.commit()
+            flash("Password updated — sign in with your new password.", "success")
+            return redirect(url_for("login"))
+        return render_template("reset_password.html", token=token)
+    finally:
+        conn.close()
 
 
 # ---------- super-admin: site management ----------
@@ -485,6 +591,7 @@ def quiz_update_settings(quiz_id):
 
 _SETTING_TYPES = {
     "title": "str", "description": "str", "kind": "str", "quiz_password": "str",
+    "ip_allowlist": "str",
     "time_limit_seconds": "int", "pass_mark": "int", "max_attempts": "int",
     "violation_limit": "int",
     "randomize_questions": "bool", "randomize_options": "bool",
@@ -492,6 +599,7 @@ _SETTING_TYPES = {
     "is_published": "bool", "paginated": "bool",
     "anti_paste": "bool", "anti_rightclick": "bool", "block_selection": "bool",
     "require_fullscreen": "bool", "detect_tab_switch": "bool",
+    "detect_devtools": "bool",
 }
 
 
@@ -1269,6 +1377,30 @@ def _hash_sort(items, seed_prefix: str, key_fn=None):
     return sorted(items, key=sort_key)
 
 
+def _ip_allowed(allowlist: str, ip: str) -> bool:
+    """Check if `ip` is allowed by `allowlist`. Allowlist is a comma/newline separated list
+    of exact IPs or CIDR ranges. Empty allowlist = allow all."""
+    if not allowlist or not allowlist.strip():
+        return True
+    import ipaddress as _ip
+    try:
+        client = _ip.ip_address(ip)
+    except ValueError:
+        return False
+    tokens = [t.strip() for t in allowlist.replace("\n", ",").split(",") if t.strip()]
+    for tok in tokens:
+        try:
+            if "/" in tok:
+                if client in _ip.ip_network(tok, strict=False):
+                    return True
+            else:
+                if client == _ip.ip_address(tok):
+                    return True
+        except ValueError:
+            continue
+    return False
+
+
 def _shuffle_for_attempt(quiz, questions, attempt_id):
     """Apply randomization deterministically based on attempt_id so refresh shows same order."""
     seed_prefix = f"qz{quiz['id']}-att{attempt_id}"
@@ -1317,6 +1449,9 @@ def take_quiz(code):
         quiz = conn.execute("SELECT * FROM quizzes WHERE share_code=?", (code,)).fetchone()
         if not quiz or not quiz["is_published"]:
             abort(404)
+        # IP allowlist gate (anti-cheating Tier 2)
+        if quiz["ip_allowlist"] and not _ip_allowed(quiz["ip_allowlist"], request.remote_addr or ""):
+            return render_template("student/ip_blocked.html", quiz=dict(quiz), ip=request.remote_addr), 403
         # Password gate
         if quiz["quiz_password"]:
             pass_key = f"pass_ok_{quiz['id']}"

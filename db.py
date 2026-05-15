@@ -310,6 +310,20 @@ def init_db() -> None:
         _ensure_column(conn, "quizzes", "require_fullscreen", "INTEGER DEFAULT 0")
         _ensure_column(conn, "quizzes", "detect_tab_switch", "INTEGER DEFAULT 0")
         _ensure_column(conn, "quizzes", "violation_limit", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "users", "failed_login_count", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "users", "locked_until", "INTEGER")
+        _ensure_column(conn, "quizzes", "ip_allowlist", "TEXT")
+        _ensure_column(conn, "quizzes", "detect_devtools", "INTEGER DEFAULT 0")
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS password_resets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                token TEXT UNIQUE NOT NULL,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                used_at INTEGER
+            )"""
+        )
         conn.commit()
     finally:
         conn.close()
