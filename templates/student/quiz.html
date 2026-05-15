@@ -2,7 +2,7 @@
 {% block title %}{{ quiz.title }}{% endblock %}
 {% block content %}
 {% set has_per_q_timers = questions|selectattr('time_limit_seconds')|list|length > 0 %}
-{% set paginated = quiz.paginated or (has_per_q_timers and quiz.kind == 'exam') %}
+{% set paginated = quiz.paginated or (has_per_q_timers and quiz.kind == 'exam') or quiz.kind == 'form' %}
 
 <div class="max-w-3xl mx-auto">
   <div class="flex items-center gap-2 mb-1">
@@ -141,9 +141,14 @@
         <div class="bg-white border border-slate-200 rounded-lg p-5 question-block {% if paginated and not loop.first %}hidden{% endif %}"
              data-qid="{{ q.id }}"
              data-time="{{ q.time_limit_seconds or 0 }}"
+             data-required="{{ '1' if q.is_required else '0' }}"
              data-idx="{{ loop.index0 }}">
           <div class="flex items-start justify-between gap-3 mb-1">
-            <p class="text-xs text-slate-500">Q{{ loop.index }} of {{ questions|length }} &middot; {{ q.points }} pt{% if q.points != 1 %}s{% endif %}</p>
+            <p class="text-xs text-slate-500">
+              {% if quiz.kind == 'form' %}Field{% else %}Q{% endif %}{{ loop.index }} of {{ questions|length }}
+              {% if quiz.kind != 'form' %} &middot; {{ q.points }} pt{% if q.points != 1 %}s{% endif %}{% endif %}
+              {% if q.is_required %}<span class="text-red-500 ml-1" title="Required">*</span>{% endif %}
+            </p>
             {% if q.time_limit_seconds %}
               <div class="text-sm text-amber-700 font-mono whitespace-nowrap"
                    data-q-timer="{{ q.id }}"
@@ -449,15 +454,76 @@
 
     function showBlock(idx) {
       blocks.forEach(function(b, i) {
-        if (i === idx) b.classList.remove('hidden');
-        else b.classList.add('hidden');
+        if (i === idx) {
+          b.classList.remove('hidden');
+          b.classList.remove('qf-slide-in');
+          // restart animation
+          void b.offsetWidth;
+          b.classList.add('qf-slide-in');
+        } else {
+          b.classList.add('hidden');
+        }
       });
       if (progressEl) progressEl.textContent = (idx + 1);
       const block = blocks[idx];
-      if (block) startQuestionTimer(block);
+      if (block) {
+        startQuestionTimer(block);
+        // Autofocus the first input for a smoother typing-first UX
+        const firstInput = block.querySelector('input:not([type=hidden]), select, textarea');
+        if (firstInput && !firstInput.disabled) setTimeout(() => firstInput.focus(), 200);
+      }
+    }
+
+    function isBlockAnswered(block) {
+      // Hidden inputs (matching / ordering / drag-drop / hotspot)
+      const hidden = block.querySelector('input[type="hidden"][name^="q_"]');
+      if (hidden) {
+        const v = (hidden.value || '').trim();
+        if (!v || v === '[]' || v === 'null' || v === '""') return false;
+        // If it's a JSON array of empty strings, treat as unanswered
+        try { const j = JSON.parse(v); if (Array.isArray(j) && j.every(x => !x)) return false; } catch (_) {}
+        return true;
+      }
+      const radios = block.querySelectorAll('input[type="radio"]');
+      if (radios.length) return Array.from(radios).some(r => r.checked);
+      const checks = block.querySelectorAll('input[type="checkbox"]');
+      if (checks.length) return Array.from(checks).some(c => c.checked);
+      const select = block.querySelector('select');
+      if (select) return (select.value || '').trim() !== '';
+      const text = block.querySelector('input:not([type=hidden]), textarea');
+      if (text) return (text.value || '').trim() !== '';
+      return true;
+    }
+
+    function shakeBlock(block, message) {
+      block.classList.add('qf-shake');
+      // Insert the inline required message (or update existing)
+      let msg = block.querySelector('.qf-required-msg');
+      if (!msg) {
+        msg = document.createElement('div');
+        msg.className = 'qf-required-msg';
+        const inputArea = block.querySelector('input, select, textarea, .matching-block, .ordering-block, .dragdrop-block, .hotspot-block') || block;
+        (inputArea.parentNode || block).insertBefore(msg, inputArea.nextSibling || null);
+      }
+      msg.textContent = message || 'This field is required.';
+      setTimeout(() => block.classList.remove('qf-shake'), 480);
+    }
+
+    function clearRequiredMsg(block) {
+      const m = block.querySelector('.qf-required-msg');
+      if (m) m.remove();
     }
 
     function advance() {
+      const block = blocks[currentIdx];
+      const required = (block.dataset.required || '1') === '1';
+      if (required && !isBlockAnswered(block)) {
+        shakeBlock(block, 'This field is required.');
+        const firstInput = block.querySelector('input:not([type=hidden]), select, textarea');
+        if (firstInput) firstInput.focus();
+        return;
+      }
+      clearRequiredMsg(block);
       // Save before moving on
       doSave();
       const next = currentIdx + 1;

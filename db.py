@@ -319,6 +319,7 @@ def init_db() -> None:
         _ensure_column(conn, "quizzes", "camera_proctor", "INTEGER DEFAULT 0")
         _ensure_column(conn, "quizzes", "proctor_snapshot_interval", "INTEGER DEFAULT 30")
         _ensure_column(conn, "questions", "image_url", "TEXT")
+        _ensure_column(conn, "questions", "is_required", "INTEGER DEFAULT 1")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS proctor_snapshots (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -75,7 +75,7 @@
   const quizId = quizIdMatch ? quizIdMatch[1] : null;
 
   function buildEditor(existing) {
-    const data = existing || { type: 'mcq_single', text: '', options: ['', ''], correct_answers: [], points: 1, explanation: '', time_limit_seconds: 0 };
+    const data = existing || { type: 'mcq_single', text: '', options: ['', ''], correct_answers: [], points: 1, explanation: '', time_limit_seconds: 0, is_required: 1 };
     const wrap = document.createElement('div');
     wrap.className = 'bg-white border-2 border-brand-500 rounded-lg p-4 fade-in question-editor';
     wrap.innerHTML = `
@@ -90,6 +90,10 @@
           <input class="q-time w-full mt-1 px-3 py-2 border rounded text-sm" type="number" min="0" step="5" value="${data.time_limit_seconds || 0}" placeholder="0" />
         </label>
       </div>
+      <label class="flex items-center gap-2 text-xs text-slate-600 mb-2">
+        <input type="checkbox" class="q-required" ${data.is_required ? 'checked' : ''} />
+        <span>Required — student must answer this before going to Next</span>
+      </label>
       <textarea class="q-text w-full px-3 py-2 border rounded text-sm mb-2" rows="2" placeholder="Question text...">${esc(data.text)}</textarea>
       <div class="q-options-wrap"></div>
       <div class="q-short-wrap mt-2 hidden">
@@ -237,6 +241,7 @@
         text: wrap.querySelector('.q-text').value.trim(),
         points: parseInt(wrap.querySelector('.q-points').value || '1', 10),
         time_limit_seconds: parseInt(wrap.querySelector('.q-time').value || '0', 10),
+        is_required: wrap.querySelector('.q-required').checked,
         explanation: wrap.querySelector('.q-expl').value,
         options: [],
         correct_answers: [],

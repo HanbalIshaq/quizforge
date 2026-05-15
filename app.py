@@ -1069,22 +1069,23 @@ def question_save(quiz_id):
         explanation = payload.get("explanation") or ""
         time_limit = max(0, int(payload.get("time_limit_seconds") or 0))
         image_url = (payload.get("image_url") or "").strip() or None
+        is_required = 1 if payload.get("is_required") in (True, 1, "1", "on", "true") else 0
         if not text:
             return jsonify({"ok": False, "error": "Question text required"}), 400
         if qid:
             conn.execute(
-                """UPDATE questions SET type=?, text=?, options=?, correct_answers=?, points=?, explanation=?, time_limit_seconds=?, image_url=?
+                """UPDATE questions SET type=?, text=?, options=?, correct_answers=?, points=?, explanation=?, time_limit_seconds=?, image_url=?, is_required=?
                    WHERE id=? AND quiz_id=?""",
-                (qtype, text, json.dumps(options), json.dumps(correct), points, explanation, time_limit, image_url, qid, quiz_id),
+                (qtype, text, json.dumps(options), json.dumps(correct), points, explanation, time_limit, image_url, is_required, qid, quiz_id),
             )
         else:
             pos_row = conn.execute(
                 "SELECT COALESCE(MAX(position), -1)+1 AS p FROM questions WHERE quiz_id=?", (quiz_id,)
             ).fetchone()
             cur = conn.execute(
-                """INSERT INTO questions(quiz_id, type, text, options, correct_answers, points, position, explanation, time_limit_seconds, image_url)
-                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                (quiz_id, qtype, text, json.dumps(options), json.dumps(correct), points, pos_row["p"], explanation, time_limit, image_url),
+                """INSERT INTO questions(quiz_id, type, text, options, correct_answers, points, position, explanation, time_limit_seconds, image_url, is_required)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (quiz_id, qtype, text, json.dumps(options), json.dumps(correct), points, pos_row["p"], explanation, time_limit, image_url, is_required),
             )
             qid = cur.lastrowid
         conn.execute("UPDATE quizzes SET updated_at=? WHERE id=?", (db.now_ts(), quiz_id))

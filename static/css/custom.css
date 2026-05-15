@@ -4,3 +4,30 @@ input:focus, textarea:focus, select:focus { outline: none; }
 .fade-in { animation: fadeIn 0.25s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: none;} }
 .bar-grow { transition: width 0.4s ease-out; }
+
+/* JotForm-style paginated quiz: shake on required-empty, slide-in on advance */
+@keyframes qf-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-10px); }
+  40% { transform: translateX(10px); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(6px); }
+}
+.qf-shake { animation: qf-shake 0.45s ease-in-out; }
+.qf-shake { border-color: #ef4444 !important; box-shadow: 0 0 0 3px rgba(239,68,68,0.18); }
+
+@keyframes qf-slide-in {
+  from { opacity: 0; transform: translateX(40px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.qf-slide-in { animation: qf-slide-in 0.32s ease-out; }
+
+.qf-required-msg {
+  display: inline-block;
+  background: #ef4444;
+  color: white;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  margin-top: 8px;
+}
