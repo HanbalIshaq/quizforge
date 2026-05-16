@@ -996,74 +996,100 @@
 
     async function loadFaceApi(status) {
       if (window._faceApiReady) return true;
-      status && (status.textContent = 'Loading face-detection model…');
-      // Pinned version — library AND models from the same package guarantees compatibility
-      const FACE_API_JS = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.min.js';
-      const FACE_API_MODELS = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model/';
-      try {
-        if (!window.faceapi) {
-          await new Promise((resolve, reject) => {
-            const tag = document.createElement('script');
-            tag.src = FACE_API_JS;
-            tag.onload = () => resolve();
-            tag.onerror = () => reject(new Error('Could not download face-api script'));
-            document.head.appendChild(tag);
-          });
+      status && (status.textContent = '⏳ AI tracker: downloading face-detection model…');
+      // Try both jsDelivr and unpkg so a single CDN outage doesn't break proctoring
+      const SOURCES = [
+        { js: 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.min.js',
+          models: 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model/' },
+        { js: 'https://unpkg.com/@vladmandic/face-api@1.7.13/dist/face-api.min.js',
+          models: 'https://unpkg.com/@vladmandic/face-api@1.7.13/model/' },
+      ];
+      for (const src of SOURCES) {
+        try {
+          if (!window.faceapi) {
+            await new Promise((resolve, reject) => {
+              const tag = document.createElement('script');
+              tag.src = src.js;
+              tag.onload = () => resolve();
+              tag.onerror = () => reject(new Error('script load failed from ' + src.js));
+              document.head.appendChild(tag);
+            });
+          }
+          if (!window.faceapi || !window.faceapi.nets) throw new Error('face-api global missing');
+          await window.faceapi.nets.tinyFaceDetector.load(src.models);
+          await window.faceapi.nets.faceLandmark68Net.load(src.models);
+          window._faceApiReady = true;
+          console.log('[QuizForge] face-api loaded from', src.js);
+          status && (status.textContent = '✅ AI tracker: model loaded. Look at the camera.');
+          return true;
+        } catch (e) {
+          console.warn('[QuizForge] face-api load failed for', src.js, e);
         }
-        if (!window.faceapi || !window.faceapi.nets) throw new Error('face-api script loaded but global not available');
-        // .load() in vladmandic's fork accepts a URL string
-        await window.faceapi.nets.tinyFaceDetector.load(FACE_API_MODELS);
-        await window.faceapi.nets.faceLandmark68Net.load(FACE_API_MODELS);
-        window._faceApiReady = true;
-        return true;
-      } catch (e) {
-        console.error('[QuizForge] face-api load failed:', e);
-        if (status) {
-          status.innerHTML = '⚠ Face-detection model could not load (' + (e.message || e) +
-            '). Camera will keep recording snapshots for admin review. ' +
-            '<button type="button" id="proctor-skip-model" class="underline">Continue without AI detection</button>';
-          const skip = document.getElementById('proctor-skip-model');
-          if (skip) skip.onclick = (ev) => {
-            ev.preventDefault();
-            window._faceApiSkipped = true;
-            const cont = document.getElementById('proctor-continue');
-            if (cont) cont.disabled = false;
-            status.textContent = '✓ Camera active (manual proctoring mode).';
-          };
-        }
-        return false;
       }
+      // Both sources failed
+      console.error('[QuizForge] all face-api sources failed');
+      if (status) {
+        status.innerHTML = '⚠ AI tracker: model could not load from any CDN. Camera will keep recording snapshots for admin review. ' +
+          '<button type="button" id="proctor-skip-model" class="underline">Continue anyway</button>';
+        const skip = document.getElementById('proctor-skip-model');
+        if (skip) skip.onclick = (ev) => {
+          ev.preventDefault();
+          window._faceApiSkipped = true;
+          const cont = document.getElementById('proctor-continue');
+          if (cont) cont.disabled = false;
+          status.textContent = '✓ Camera active (manual proctoring mode).';
+        };
+      }
+      return false;
     }
 
     function drawOverlay(canvas, video, detections, opts) {
-      if (!canvas || !video || !video.videoWidth) return;
-      // Match internal canvas resolution to displayed video size for crisp drawing
-      const displayW = video.clientWidth || canvas.clientWidth;
-      const displayH = video.clientHeight || canvas.clientHeight;
+      if (!canvas || !video) return;
+      const displayW = video.clientWidth || canvas.clientWidth || 320;
+      const displayH = video.clientHeight || canvas.clientHeight || 240;
       if (canvas.width !== displayW)  canvas.width  = displayW;
       if (canvas.height !== displayH) canvas.height = displayH;
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Always-on corner brackets so user sees the AI is alive even before first detection
+      const t = Date.now() / 250;
+      const pulse = 0.55 + 0.45 * Math.abs(Math.sin(t));
+      ctx.strokeStyle = `rgba(16,185,129,${pulse})`;
+      ctx.lineWidth = 3;
+      const cornerLen = Math.min(canvas.width, canvas.height) * 0.08;
+      [[0,0],[canvas.width,0],[0,canvas.height],[canvas.width,canvas.height]].forEach(([cx,cy], idx) => {
+        const dx = cx === 0 ? cornerLen : -cornerLen;
+        const dy = cy === 0 ? cornerLen : -cornerLen;
+        ctx.beginPath(); ctx.moveTo(cx, cy + dy); ctx.lineTo(cx, cy); ctx.lineTo(cx + dx, cy); ctx.stroke();
+      });
+
       if (!detections || !detections.length) return;
-      // Scale detection coords (model space) → canvas (display) coords
+      if (!video.videoWidth) return;
       const sx = canvas.width / video.videoWidth;
       const sy = canvas.height / video.videoHeight;
-      const color = (opts && opts.color) || '#10b981';  // green
+      const color = (opts && opts.color) || '#10b981';
+
+      // Soft glow effect (more "AI tracker" feel)
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 8;
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
-      ctx.lineWidth = 2;
+
       detections.forEach(d => {
         const box = d.detection ? d.detection.box : d.box;
         if (box) {
+          ctx.lineWidth = 3;
           ctx.strokeRect(box.x * sx, box.y * sy, box.width * sx, box.height * sy);
         }
         if (d.landmarks && d.landmarks.positions) {
+          // 68 visible dots
           d.landmarks.positions.forEach(p => {
             ctx.beginPath();
-            ctx.arc(p.x * sx, p.y * sy, 1.6, 0, Math.PI * 2);
+            ctx.arc(p.x * sx, p.y * sy, 2.4, 0, Math.PI * 2);
             ctx.fill();
           });
-          // Draw eye polygons + lip outline to look more "AI tracker"-ish
+          // Lines connecting key facial features
           const pts = d.landmarks.positions;
           const drawPolyline = (idxs, close=false) => {
             ctx.beginPath();
@@ -1075,12 +1101,19 @@
             if (close) ctx.closePath();
             ctx.stroke();
           };
-          ctx.lineWidth = 1.5;
-          drawPolyline([36,37,38,39,40,41], true);            // left eye
-          drawPolyline([42,43,44,45,46,47], true);            // right eye
-          drawPolyline([48,49,50,51,52,53,54,55,56,57,58,59], true); // outer lips
+          ctx.lineWidth = 2;
+          drawPolyline([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]); // jaw
+          drawPolyline([17,18,19,20,21]);                              // left brow
+          drawPolyline([22,23,24,25,26]);                              // right brow
+          drawPolyline([27,28,29,30]);                                 // nose bridge
+          drawPolyline([31,32,33,34,35]);                              // nose base
+          drawPolyline([36,37,38,39,40,41], true);                     // left eye
+          drawPolyline([42,43,44,45,46,47], true);                     // right eye
+          drawPolyline([48,49,50,51,52,53,54,55,56,57,58,59], true);   // outer lips
+          drawPolyline([60,61,62,63,64,65,66,67], true);               // inner lips
         }
       });
+      ctx.shadowBlur = 0;
     }
 
     if (cameraProctor) {
@@ -1111,48 +1144,57 @@
             setupStatus.innerHTML = '✓ Camera active. Click <b>Begin exam</b>. (Face-detection may still be loading — admin will see snapshots.)';
           }, 15000);
 
-          // Setup detection loop: confirm 1 face for 3 consecutive checks; ALSO draw landmarks live
-          const setupTick = setInterval(async () => {
-            if (!ok || window._faceApiSkipped) {
-              continueBtn.disabled = false;
-              if (!window._faceApiSkipped) {
-                setupStatus.innerHTML = '✓ Camera active (face-detection model not loaded — manual check by admin).';
+          // ── Two parallel loops on the setup gate ──
+          // (1) Visual loop @ 100ms — always draws corner brackets (proves the system is alive)
+          //     even before face-api models finish downloading.
+          let lastSetupDetections = [];
+          let lastSetupColor = '#10b981';
+          const visualLoop = setInterval(() => {
+            if (gate.classList.contains('hidden')) { clearInterval(visualLoop); return; }
+            drawOverlay(setupOverlay, setupVideo, lastSetupDetections, {color: lastSetupColor});
+          }, 100);
+
+          // (2) Detection loop @ 600ms — runs AI when model is loaded.
+          const detectLoop = setInterval(async () => {
+            if (gate.classList.contains('hidden')) { clearInterval(detectLoop); return; }
+            if (!window._faceApiReady) {
+              if (window._faceApiSkipped) {
+                continueBtn.disabled = false;
+                clearInterval(detectLoop);
               }
-              clearInterval(setupTick);
               return;
             }
             try {
               const detections = await window.faceapi
                 .detectAllFaces(setupVideo, new window.faceapi.TinyFaceDetectorOptions({inputSize: 224, scoreThreshold: 0.3}))
                 .withFaceLandmarks(true);
-              let yaw = 0;
-              let overlayColor = '#10b981'; // green
+              lastSetupDetections = detections;
               if (detections.length === 1) {
-                yaw = estimateYaw(detections[0].landmarks);
+                const yaw = estimateYaw(detections[0].landmarks);
                 if (Math.abs(yaw) < 0.12) {
                   stableSec++;
-                  setupStatus.innerHTML = `✓ Face detected — hold still… (${stableSec}/3) · yaw=${yaw.toFixed(2)}`;
+                  lastSetupColor = '#10b981';
+                  setupStatus.innerHTML = `✅ AI tracker: face detected — yaw=${yaw.toFixed(2)} · hold still (${stableSec}/3)`;
                   if (stableSec >= 3) {
                     continueBtn.disabled = false;
-                    setupStatus.innerHTML = '✅ Face confirmed. Click <b>Begin exam</b>.';
+                    setupStatus.innerHTML = '🎯 Face confirmed. Click <b>Begin exam</b>.';
                   }
                 } else {
                   stableSec = 0;
-                  overlayColor = '#f59e0b'; // amber
-                  setupStatus.innerHTML = `↔ Face turned (yaw=${yaw.toFixed(2)}) — look straight at the screen.`;
+                  lastSetupColor = '#f59e0b';
+                  setupStatus.innerHTML = `↔ AI tracker: face turned (yaw=${yaw.toFixed(2)}) — look straight at the screen.`;
                 }
               } else if (detections.length === 0) {
                 stableSec = 0;
-                overlayColor = '#ef4444'; // red
-                setupStatus.innerHTML = '👤 No face detected — sit closer / improve lighting / center your face in the oval.';
+                lastSetupColor = '#ef4444';
+                setupStatus.innerHTML = '👤 AI tracker: no face — sit closer / improve lighting / center your face.';
               } else {
                 stableSec = 0;
-                overlayColor = '#ef4444';
-                setupStatus.innerHTML = `⚠ ${detections.length} faces detected — only you should be visible.`;
+                lastSetupColor = '#ef4444';
+                setupStatus.innerHTML = `⚠ AI tracker: ${detections.length} faces detected — only you should be visible.`;
               }
-              drawOverlay(setupOverlay, setupVideo, detections, {color: overlayColor});
             } catch (e) { console.error('[QuizForge] setup detect error', e); }
-          }, 700);
+          }, 600);
         } catch (e) {
           setupStatus.textContent = '✗ Camera blocked: ' + (e.message || e) + '. Allow camera in your browser and reload.';
         }
@@ -1169,28 +1211,34 @@
         proctorRunning = true;
         sendSnapshot('periodic', captureCanvas(miniVideo), 'entered exam');
 
-        // Live monitoring loop (1s — fast enough for live overlay; violations only after thresholds)
-        const monitor = async () => {
+        // ── Two parallel loops during exam ──
+        let lastMiniDetections = [];
+        let lastMiniColor = '#10b981';
+        setInterval(() => {
           if (!proctorRunning) return;
-          if (!window._faceApiReady || !window.faceapi) return;
+          drawOverlay(miniOverlay, miniVideo, lastMiniDetections, {color: lastMiniColor});
+        }, 100);
+
+        setInterval(async () => {
+          if (!proctorRunning || !window._faceApiReady || !window.faceapi) return;
           let detections = [];
           try {
             detections = await window.faceapi
               .detectAllFaces(miniVideo, new window.faceapi.TinyFaceDetectorOptions({inputSize: 224, scoreThreshold: 0.3}))
               .withFaceLandmarks(true);
           } catch (_) {}
-          let color = '#10b981';
+          lastMiniDetections = detections;
           if (detections.length === 0) {
             consecutiveNoFace++;
-            color = '#ef4444';
-            if (consecutiveNoFace === 8) {  // ~8s of no face
+            lastMiniColor = '#ef4444';
+            if (consecutiveNoFace === 4) {
               sendSnapshot('no_face', captureCanvas(miniVideo), 'no face for 8s');
               miniStatus.textContent = '⚠ No face — please return';
               miniStatus.className = 'text-center bg-red-700 text-white text-xs py-0.5';
             }
           } else if (detections.length >= 2) {
             consecutiveNoFace = 0;
-            color = '#ef4444';
+            lastMiniColor = '#ef4444';
             sendSnapshot('multiple_faces', captureCanvas(miniVideo), detections.length + ' faces');
             miniStatus.textContent = '⚠ Multiple faces';
             miniStatus.className = 'text-center bg-red-700 text-white text-xs py-0.5';
@@ -1200,21 +1248,20 @@
             const lookingAway = Math.abs(yaw) > 0.22;
             if (lookingAway) {
               consecutiveAway++;
-              color = '#f59e0b';
-              if (consecutiveAway === 8) {
+              lastMiniColor = '#f59e0b';
+              if (consecutiveAway === 4) {
                 sendSnapshot('looking_away', captureCanvas(miniVideo), 'yaw=' + yaw.toFixed(2));
                 miniStatus.textContent = '⚠ Look at the screen';
                 miniStatus.className = 'text-center bg-amber-600 text-white text-xs py-0.5';
               }
             } else {
               consecutiveAway = 0;
+              lastMiniColor = '#10b981';
               miniStatus.textContent = '🔴 Proctoring';
               miniStatus.className = 'text-center bg-purple-700 text-white text-xs py-0.5';
             }
           }
-          drawOverlay(miniOverlay, miniVideo, detections, {color});
-        };
-        setInterval(monitor, 1000);   // 1s loop so the overlay looks live
+        }, 2000);
         if (proctorInterval > 0) {
           setInterval(() => sendSnapshot('periodic', captureCanvas(miniVideo), ''), proctorInterval * 1000);
         }

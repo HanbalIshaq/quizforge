@@ -345,6 +345,11 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-16 — Always-on AI overlay + Snapshots column on Results
+User reported "i cannot see any tracking lines" and asked where snapshots are saved per user. Two fixes:
+1. **Visual overlay made always-on**: Restructured into two parallel loops — a *visual loop* @ 100ms that always draws pulsing corner brackets + last-detection landmarks (so something is visible even when face-api is loading or has missed a frame), and a *detection loop* @ 600ms (setup) / 2000ms (exam) that runs the actual face-api inference. Thicker 3px box stroke, 2.4px landmark dots, `shadowBlur=8` glow effect. More polylines drawn: jaw, both brows, nose bridge, nose base, both eyes, outer + inner lips. Added a diagnostic banner showing AI tracker status ("loading models" → "tracking face"). Added unpkg CDN fallback when jsdelivr fails.
+2. **Snapshot discoverability**: Added a `📷` column on `templates/admin/quiz_results.html` showing snapshot count per attempt — clicking it deep-links to the attempt detail page's `#snapshots` anchor. The gallery on the detail page is now `<details id="snapshots" open>` so it expands by default when linked. `quiz_results` route in `app.py` builds a `snap_map` dict per attempt for the count badges.
+
 ### 2026-05-16 — Live AI overlay + remove aligned-gate
 The proctor gate now draws a live AI tracker overlay on the camera feed — bounding box + 68 facial landmarks + eye polygons + lip outline. Updates every 700ms during setup and every 1 second during the exam, so the student can see the AI actually tracking them in real time. Color codes: green = looking straight, amber = face turned, red = no face / multiple faces. Also removed the brittle `aligned` flag from the Continue click handler — now the only gate is the button's `disabled` attribute, so any path that enables the button (3-stable-detections, skip-AI link, 15s fallback, model-not-loaded path) allows clicking. Same overlay added to the mini preview during the exam.
 

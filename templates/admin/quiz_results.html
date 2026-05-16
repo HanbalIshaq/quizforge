@@ -28,6 +28,7 @@
         <th class="px-4 py-2">%</th>
         <th class="px-4 py-2">Answered</th>
         <th class="px-4 py-2">Integrity</th>
+        <th class="px-4 py-2">📷</th>
         <th class="px-4 py-2">Submitted</th>
         <th class="px-4 py-2"></th>
       </tr>
@@ -71,6 +72,15 @@
               <span class="text-xs text-slate-400">—</span>
             {% endif %}
           </td>
+          <td class="px-4 py-2">
+            {% if a.snapshot_count %}
+              <a href="{{ url_for('attempt_detail', quiz_id=quiz.id, aid=a.id) }}#snapshots"
+                 class="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 hover:bg-purple-200"
+                 title="Click to open snapshots">📷 {{ a.snapshot_count }}</a>
+            {% else %}
+              <span class="text-xs text-slate-400">—</span>
+            {% endif %}
+          </td>
           <td class="px-4 py-2 text-slate-500">{{ a.submitted_at_fmt }}</td>
           <td class="px-4 py-2 text-right whitespace-nowrap">
             <a href="{{ url_for('attempt_detail', quiz_id=quiz.id, aid=a.id) }}" class="text-xs px-2 py-1 bg-slate-100 rounded hover:bg-slate-200">View</a>
@@ -82,7 +92,7 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="9" class="px-4 py-8 text-center text-slate-500">No attempts yet.</td></tr>
+        <tr><td colspan="10" class="px-4 py-8 text-center text-slate-500">No attempts yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

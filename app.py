@@ -1436,6 +1436,14 @@ def quiz_results(quiz_id):
             (quiz_id,),
         ).fetchall()
         viol_map = {r["attempt_id"]: r["n"] for r in viol_rows}
+        # Snapshot counts per attempt
+        snap_rows = conn.execute(
+            """SELECT s.attempt_id, COUNT(*) AS n FROM proctor_snapshots s
+               JOIN attempts a ON a.id=s.attempt_id
+               WHERE a.quiz_id=? GROUP BY s.attempt_id""",
+            (quiz_id,),
+        ).fetchall()
+        snap_map = {r["attempt_id"]: r["n"] for r in snap_rows}
         # Per-attempt: how many distinct questions did this respondent answer with a non-empty answer?
         n_answered_map: dict[int, int] = {}
         if attempts:
@@ -1458,6 +1466,7 @@ def quiz_results(quiz_id):
             a["submitted_at_fmt"] = fmt_ts(a["submitted_at"])
             a["is_partial"] = a["submitted_at"] is None
             a["violation_count"] = viol_map.get(a["id"], 0)
+            a["snapshot_count"] = snap_map.get(a["id"], 0)
             a["n_answered"] = n_answered_map.get(a["id"], 0)
         # For drill-down on poll results: who picked each option
         is_anonymous = quiz["kind"] == "survey"
