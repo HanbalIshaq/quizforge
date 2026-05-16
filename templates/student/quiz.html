@@ -394,7 +394,8 @@
 
           {% if paginated %}
             <div class="mt-4 flex justify-end">
-              <button type="button" class="next-btn px-4 py-2 bg-brand-600 text-white rounded hover:bg-brand-700 text-sm">
+              <button type="button" class="next-btn px-4 py-2 bg-brand-600 text-white rounded hover:bg-brand-700 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                      {% if loop.last %}data-is-submit="1"{% endif %}>
                 {% if loop.last %}Submit ✓{% else %}Next →{% endif %}
               </button>
             </div>
@@ -405,10 +406,30 @@
 
     {% if not paginated %}
       <div class="flex justify-end">
-        <button class="px-6 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">Submit</button>
+        <button id="quiz-submit-btn"
+                class="px-6 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2">
+          <span class="qf-submit-label">Submit</span>
+        </button>
       </div>
     {% endif %}
   </form>
+
+  <!-- Full-screen "Submitting…" overlay shown the moment the student clicks Submit,
+       so they get instant visual confirmation and don't double-click. -->
+  <div id="qf-submitting-overlay"
+       class="hidden fixed inset-0 z-[9999] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center">
+    <div class="bg-white rounded-2xl shadow-2xl px-8 py-6 text-center max-w-sm w-[90%]">
+      <div class="mx-auto w-12 h-12 mb-3">
+        <svg class="animate-spin w-12 h-12 text-brand-600" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor"
+                d="M4 12a8 8 0 0 1 8-8v4l5-5-5-5v4a10 10 0 0 0-10 10h2z" transform="translate(0 6)"></path>
+        </svg>
+      </div>
+      <p class="text-lg font-semibold text-slate-900">Submitting your answers…</p>
+      <p class="text-sm text-slate-500 mt-1">Please don't close or refresh this page.</p>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -516,9 +537,43 @@
       return '';
     });
 
-    form.addEventListener('submit', function() {
+    // ===== Instant submit feedback =====
+    // The server can take up to ~2s on Neon free tier (cold DB + per-question
+    // INSERTs). Without immediate visual confirmation, students assume the
+    // button didn't work and click Submit 3-4 times, creating duplicate
+    // attempts and angry support tickets. Show a full-screen "Submitting…"
+    // overlay the instant the form starts submitting, and lock every button
+    // on the page so a second click is impossible.
+    function showSubmittingOverlay() {
+      const ov = document.getElementById('qf-submitting-overlay');
+      if (ov) ov.classList.remove('hidden');
+      // Disable every button/submit on the page (paginated Next/Submit, the
+      // non-paginated Submit, any custom). Capture phase so even handlers
+      // attached after us can't re-enable.
+      document.querySelectorAll('button, input[type=submit]').forEach(function(b) {
+        b.disabled = true;
+        b.setAttribute('aria-busy', 'true');
+      });
+      // Replace the visible Submit label so the (now disabled) button reads
+      // "Submitting…" instead of "Submit" — extra clarity if the overlay is
+      // hidden by an extension/screen reader.
+      document.querySelectorAll('.qf-submit-label').forEach(function(s) {
+        s.textContent = 'Submitting…';
+      });
+      const lastNext = document.querySelector('.next-btn[data-is-submit="1"]');
+      if (lastNext) lastNext.textContent = 'Submitting…';
+    }
+
+    form.addEventListener('submit', function(e) {
+      if (isSubmitting) {
+        // Belt-and-suspenders: if somehow a second submit fires, swallow it.
+        e.preventDefault();
+        return;
+      }
       isSubmitting = true;
-      // Best-effort final save before submitting
+      showSubmittingOverlay();
+      // Best-effort final save before submitting (fire-and-forget; does not
+      // delay the actual submit POST).
       try { navigator.sendBeacon && navigator.sendBeacon('/q/' + code + '/save', new Blob([JSON.stringify({ attempt_id: attemptId, answers: gatherAnswers() })], { type: 'application/json' })); } catch (_) {}
     });
 
@@ -624,7 +679,11 @@
       doSave();
       const next = currentIdx + 1;
       if (next >= blocks.length) {
+        // form.submit() does NOT fire the 'submit' event, so call the overlay
+        // helper directly before submitting.
+        if (isSubmitting) return;
         isSubmitting = true;
+        showSubmittingOverlay();
         form.submit();
         return;
       }
@@ -673,7 +732,13 @@
       const overallEl = document.getElementById('overall-timer');
       setInterval(function() {
         overall--;
-        if (overall <= 0) { isSubmitting = true; form.submit(); return; }
+        if (overall <= 0) {
+          if (isSubmitting) return;
+          isSubmitting = true;
+          showSubmittingOverlay();
+          form.submit();
+          return;
+        }
         if (overallEl) overallEl.textContent = fmt(overall);
         if (overall <= 30 && overallEl) overallEl.classList.add('text-red-700');
       }, 1000);
@@ -722,6 +787,7 @@
         if (j.auto_submit && !isSubmitting) {
           isSubmitting = true;
           alert('Too many integrity violations — your quiz will now be submitted.');
+          showSubmittingOverlay();
           form.submit();
         }
       }).catch(function() { /* offline — already queued via sendBeacon */ });

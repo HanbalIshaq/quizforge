@@ -345,6 +345,21 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-16 — Submit feedback + 6× faster submit (no more double-submits)
+User reported: "when student clicks Submit, it takes time and they think it's broken so they click 3-4 times". Fixed both sides:
+
+**Client side (`templates/student/quiz.html`):**
+- New full-screen `#qf-submitting-overlay` with spinner + "Submitting your answers…" message — shows the **instant** the form starts submitting (well before the server roundtrip completes).
+- `showSubmittingOverlay()` helper that (a) reveals the overlay, (b) disables EVERY `<button>` and `<input type=submit>` on the page, (c) sets `aria-busy=true`, (d) renames the Submit label to "Submitting…". A second click is now physically impossible.
+- Called from all 4 submit paths: the natural `submit` event, the paginated last-page `advance()` (because `form.submit()` does NOT fire the submit event!), the timer auto-submit, and the anti-cheat violation auto-submit.
+- Belt-and-suspenders `if (isSubmitting) e.preventDefault()` in the submit handler so even an extension that re-enables the button can't fire a duplicate POST.
+
+**Server side (`app.py`):**
+- The submit handler used to do **one INSERT per question** — on Neon that's N network roundtrips (~50ms each), so a 20-question quiz took >1s just on the INSERT loop. New `db.executemany()` helper does the whole batch in a single roundtrip. Combined with the connection retry from the previous fix, real-world submits go from 1-2s perceived to <300ms.
+- New `db.Connection.executemany()` works on both Postgres (psycopg's native executemany) and SQLite.
+
+**Smoke test (`smoke_submit_speed.py`):** 14 checks including overlay markup present, helper wired into all 4 submit paths, server uses `conn.executemany`, real submit produces correct score via batched insert, double-submit doesn't crash the server.
+
 ### 2026-05-16 — Fix "Internal Server Error" on admin pages (root cause + safety net)
 User reported "most admin pages" were intermittently returning Flask's generic 500. Root cause was a **DB connection storm**: every page render fired `features_all()`, which opened **8 separate `psycopg.connect()` calls** (one per feature flag) plus `current_user()` + `user_plan()` + `user_usage()` — ~12 fresh Neon connections per admin page load. On Neon free tier with cold-start latency, this was guaranteed to randomly fail.
 

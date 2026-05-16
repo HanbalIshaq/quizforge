@@ -157,6 +157,27 @@ class Connection:
         else:
             self._conn.executescript(sql)
 
+    def executemany(self, sql: str, seq_of_params):
+        """Run the same SQL for many rows in a single roundtrip.
+
+        Critical for the quiz-submit path where we were doing N separate
+        INSERTs (one per question) — on Neon that's N network roundtrips
+        adding up to seconds of latency. With executemany the entire batch
+        ships in one go.
+        """
+        seq = [tuple(p) for p in seq_of_params]
+        if not seq:
+            return None
+        if IS_POSTGRES:
+            translated = _translate_sql(sql)
+            # executemany doesn't return per-row ids, so don't bother adding
+            # RETURNING. Call sites that need lastrowid use single execute().
+            cur = self._conn.cursor()
+            cur.executemany(translated, seq)
+            return _CursorWrapper(cur, lastrowid=None)
+        cur = self._conn.executemany(sql, seq)
+        return _CursorWrapper(cur, lastrowid=cur.lastrowid)
+
     def commit(self):
         self._conn.commit()
 

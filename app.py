@@ -2016,6 +2016,10 @@ def take_quiz(code):
             total_pts = 0.0
             max_pts = 0.0
             needs_grading = 0
+            # Compute every row first, then INSERT them in a single batch. Doing
+            # N separate INSERTs used to add N network roundtrips on Neon (~50ms
+            # each) which made the submit visibly slow.
+            rows_to_insert: list[tuple] = []
             for q in questions:
                 max_pts += float(q["points"] or 1)
                 raw = request.form.getlist(f"q_{q['id']}")
@@ -2028,15 +2032,17 @@ def take_quiz(code):
                     needs_grading = 1
                 if is_correct:
                     total_pts += pts
-                conn.execute(
+                rows_to_insert.append((
+                    attempt_id, q["id"], json.dumps(value),
+                    None if is_correct is None else (1 if is_correct else 0),
+                    pts,
+                    0 if manual else 1,
+                ))
+            if rows_to_insert:
+                conn.executemany(
                     """INSERT INTO answers(attempt_id, question_id, answer, is_correct, points_earned, graded)
                        VALUES(?,?,?,?,?,?)""",
-                    (
-                        attempt_id, q["id"], json.dumps(value),
-                        None if is_correct is None else (1 if is_correct else 0),
-                        pts,
-                        0 if manual else 1,
-                    ),
+                    rows_to_insert,
                 )
             if is_scored:
                 pct = (total_pts / max_pts * 100) if max_pts else 0
