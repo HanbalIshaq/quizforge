@@ -1,9 +1,14 @@
 """QuizForge — self-hostable quiz + live-poll platform."""
 import hashlib
 import json
+import logging
 import os
 import random
+import secrets
+import sys
 import threading
+import time
+import traceback
 from collections import defaultdict
 from datetime import datetime
 from functools import wraps
@@ -32,6 +37,71 @@ app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB uploads
 
 socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
 db.init_db()
+
+
+# ---------- structured logging + 500 handler ----------
+# Without this, any unhandled exception in a route returns Flask's generic
+# "Internal Server Error" page and the traceback is buried (or lost) inside
+# Render's log stream. With it: every 500 gets a unique error_id, a full
+# traceback in stderr (Render captures stderr), and a friendly admin-visible
+# page so we can actually debug what crashed.
+
+# Make sure tracebacks reach Render's log stream (stderr).
+_root_logger = logging.getLogger()
+if not _root_logger.handlers:
+    _h = logging.StreamHandler(sys.stderr)
+    _h.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+    _root_logger.addHandler(_h)
+_root_logger.setLevel(logging.INFO)
+app.logger.setLevel(logging.INFO)
+
+
+@app.errorhandler(Exception)
+def _handle_unhandled_exception(e):
+    # Let Werkzeug HTTPExceptions (404, 401, abort(...)) pass through unchanged.
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return e
+    error_id = secrets.token_hex(4)
+    tb = traceback.format_exc()
+    # ALWAYS log the full traceback to stderr — this is what shows up in Render
+    # logs. Include the error_id so you can search "err_" + id in logs.
+    app.logger.error(
+        "Unhandled exception err_%s on %s %s\n%s",
+        error_id, request.method, request.path, tb,
+    )
+    # Show the traceback to super-admins (so they can debug from the page itself)
+    # but only a generic message + error ID to everyone else.
+    is_super = False
+    try:
+        uid = session.get("uid")
+        if uid:
+            conn = db.get_conn()
+            try:
+                row = conn.execute(
+                    "SELECT is_super_admin FROM users WHERE id=?", (uid,)
+                ).fetchone()
+                is_super = bool(row and row["is_super_admin"])
+            finally:
+                conn.close()
+    except Exception:
+        # If even the DB is down, we can't check super-admin status — show the
+        # generic page. Don't recurse into the error handler.
+        is_super = False
+    try:
+        return render_template(
+            "error_500.html",
+            error_id=error_id,
+            detail=tb if is_super else None,
+            path=request.path,
+        ), 500
+    except Exception:
+        # Template itself failed — last-resort plain text. Never recurse.
+        body = f"Internal Server Error (err_{error_id})"
+        if is_super:
+            body += "\n\n" + tb
+        return Response(body, status=500, mimetype="text/plain")
+
 
 # In-memory live session state: { session_id: { participants, answers, current_q } }
 LIVE_STATE: dict[int, dict] = defaultdict(lambda: {
@@ -134,6 +204,23 @@ def _settings_get(key: str, default=None):
         conn.close()
 
 
+def _settings_get_many(keys: list[str]) -> dict[str, str]:
+    """Fetch many settings keys in one DB roundtrip. Avoids the
+    one-connection-per-key pattern that used to fire 8x on every page load."""
+    if not keys:
+        return {}
+    conn = db.get_conn()
+    try:
+        placeholders = ",".join(["?"] * len(keys))
+        rows = conn.execute(
+            f"SELECT key, value FROM site_settings WHERE key IN ({placeholders})",
+            tuple(keys),
+        ).fetchall()
+        return {r["key"]: r["value"] for r in rows if r["value"] is not None}
+    finally:
+        conn.close()
+
+
 def _settings_set(key: str, value: str):
     conn = db.get_conn()
     try:
@@ -150,8 +237,20 @@ def feature_enabled(name: str) -> bool:
     return _settings_get(name, FEATURE_DEFAULTS.get(name, "0")) in ("1", "true", "True", "on", "yes")
 
 
+_TRUTHY = ("1", "true", "True", "on", "yes")
+
+
 def features_all() -> dict:
-    return {k: feature_enabled(k) for k in FEATURE_DEFAULTS}
+    """Single-query version of the feature-flag bundle. Used in the global
+    template context, so it runs on EVERY page render — keep it cheap.
+    Previously this ran one DB connection per flag (8 connections per render);
+    now it's one connection, one IN(...) query."""
+    keys = list(FEATURE_DEFAULTS)
+    overrides = _settings_get_many(keys)
+    return {
+        k: (overrides.get(k, FEATURE_DEFAULTS[k]) in _TRUTHY)
+        for k in keys
+    }
 
 
 # ===== PLANS & USAGE LIMITS =====
@@ -231,17 +330,31 @@ def live_session_count(user_id: int) -> int:
 
 @app.context_processor
 def inject_globals():
-    u = current_user()
+    # Every template render hits this. If the DB is mid-hiccup we still want
+    # the page (especially the 500 error page) to render with safe defaults
+    # rather than recursing into another exception.
     ctx = {
-        "user": u,
+        "user": None,
         "fmt_ts": fmt_ts,
         "QUESTION_TYPES": grading.QUESTION_TYPES,
         "asset_v": ASSET_VERSION,
-        "features": features_all(),
+        "features": {},
     }
+    try:
+        ctx["user"] = current_user()
+    except Exception as e:
+        app.logger.warning("inject_globals: current_user() failed: %s", e)
+    try:
+        ctx["features"] = features_all()
+    except Exception as e:
+        app.logger.warning("inject_globals: features_all() failed: %s", e)
+    u = ctx["user"]
     if u:
-        ctx["plan"] = user_plan(u["id"])
-        ctx["usage"] = user_usage(u["id"])
+        try:
+            ctx["plan"] = user_plan(u["id"])
+            ctx["usage"] = user_usage(u["id"])
+        except Exception as e:
+            app.logger.warning("inject_globals: plan/usage failed: %s", e)
     return ctx
 
 

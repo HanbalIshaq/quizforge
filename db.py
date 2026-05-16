@@ -170,11 +170,34 @@ class Connection:
             pass
 
 
+# Connection settings tuned for Neon-style serverless Postgres: short connect
+# timeout (so a sleeping endpoint doesn't hang the request for 30s+), plus a
+# small retry loop because the first request after the DB sleeps will reset
+# the TCP connection before the wake-up handshake completes.
+_PG_CONNECT_TIMEOUT = int(os.environ.get("PG_CONNECT_TIMEOUT", "10"))
+_PG_CONNECT_RETRIES = int(os.environ.get("PG_CONNECT_RETRIES", "3"))
+
+
 def get_conn() -> Connection:
     if IS_POSTGRES:
-        native = psycopg.connect(DATABASE_URL)
-        return Connection(native)
-    native = sqlite3.connect(DB_PATH)
+        last_err = None
+        for attempt in range(_PG_CONNECT_RETRIES):
+            try:
+                native = psycopg.connect(
+                    DATABASE_URL,
+                    connect_timeout=_PG_CONNECT_TIMEOUT,
+                    # Auto-reconnect on dropped sockets between requests.
+                    autocommit=False,
+                )
+                return Connection(native)
+            except Exception as e:  # noqa: BLE001 — psycopg raises many subclasses
+                last_err = e
+                # Quick backoff: 0.4s, 0.8s, 1.6s. Neon usually wakes within 1–2s.
+                time.sleep(0.4 * (2 ** attempt))
+        # Out of retries — propagate so the Flask error handler can render a 500
+        # page with a useful message instead of hanging.
+        raise last_err  # type: ignore[misc]
+    native = sqlite3.connect(DB_PATH, timeout=10)
     native.row_factory = sqlite3.Row
     native.execute("PRAGMA foreign_keys = ON")
     return Connection(native)

@@ -345,6 +345,16 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-16 — Fix "Internal Server Error" on admin pages (root cause + safety net)
+User reported "most admin pages" were intermittently returning Flask's generic 500. Root cause was a **DB connection storm**: every page render fired `features_all()`, which opened **8 separate `psycopg.connect()` calls** (one per feature flag) plus `current_user()` + `user_plan()` + `user_usage()` — ~12 fresh Neon connections per admin page load. On Neon free tier with cold-start latency, this was guaranteed to randomly fail.
+
+Three-layer fix:
+1. **`features_all()` rewritten** — new `_settings_get_many()` does one `SELECT ... WHERE key IN (?, ?, ...)` query. Connections per page render drop from ~12 to ~5. Smoke test confirms: 8 connections → 1.
+2. **`db.get_conn()` hardened** — added `connect_timeout=10s` and a 3-try retry loop with exponential backoff (0.4s, 0.8s, 1.6s) for transient Neon disconnects. Configurable via `PG_CONNECT_TIMEOUT` / `PG_CONNECT_RETRIES` env vars.
+3. **Global 500 handler** in `app.py` — every unhandled exception now (a) logs full traceback to stderr with a unique `err_xxxxxxxx` ID (Render captures stderr), (b) renders a friendly `templates/error_500.html` page with the ID, and (c) shows the traceback inline to super-admins only (regular users get the generic message). HTTPExceptions (404, 401, abort) still pass through unchanged. Made `inject_globals()` defensive so a DB hiccup mid-render doesn't recurse.
+
+Now when an admin page DOES error, you'll see the error ID on screen + the full traceback in Render logs — no more guessing. Smoke test covers 17 cases (admin dashboard, site features, site users, live list, bank, crash route 500-handling for super and non-super, 404 passthrough, single-connection features_all, retry config).
+
 ### 2026-05-16 — Always-on AI overlay + Snapshots column on Results
 User reported "i cannot see any tracking lines" and asked where snapshots are saved per user. Two fixes:
 1. **Visual overlay made always-on**: Restructured into two parallel loops — a *visual loop* @ 100ms that always draws pulsing corner brackets + last-detection landmarks (so something is visible even when face-api is loading or has missed a frame), and a *detection loop* @ 600ms (setup) / 2000ms (exam) that runs the actual face-api inference. Thicker 3px box stroke, 2.4px landmark dots, `shadowBlur=8` glow effect. More polylines drawn: jaw, both brows, nose bridge, nose base, both eyes, outer + inner lips. Added a diagnostic banner showing AI tracker status ("loading models" → "tracking face"). Added unpkg CDN fallback when jsdelivr fails.
