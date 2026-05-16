@@ -345,6 +345,9 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-16 — Camera v2 click-handler bug fix
+The 15-second fallback was enabling the green Continue button visually but the click handler `if (!aligned) return;` silently bailed because `aligned` stayed false. Now every "let the student proceed" path (model-loaded path, model-skipped path, 15-second timeout) sets `aligned = true` before unlocking the button. Verified: clicking the button now actually transitions into the exam.
+
 ### 2026-05-16 — face-api loader fix
 The library/models URLs in v2 were mismatched (original face-api.js JS but vladmandic model paths). Pinned to `@vladmandic/face-api@1.7.13` for both library AND model weights, switched to `.load()` from `.loadFromUri()`. Added console.error logging and a visible "Continue without AI detection" fallback button if the model can't download. Hard 15-second fallback enables Continue even if everything fails so a student can't be locked out by a CDN hiccup.
 

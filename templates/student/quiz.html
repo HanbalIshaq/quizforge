@@ -1055,17 +1055,20 @@
           // Hard 15-second fallback: enable Continue even without face detection
           setTimeout(() => {
             if (!continueBtn.disabled) return;
+            aligned = true;            // ← unlock the click handler
             continueBtn.disabled = false;
             setupStatus.innerHTML = '✓ Camera active. Click <b>Begin exam</b>. (Face-detection may still be loading — admin will see snapshots.)';
           }, 15000);
 
           // Setup detection loop: confirm 1 face for 3 consecutive checks before enabling Continue
           const setupTick = setInterval(async () => {
-            if (!ok) {
+            if (!ok || window._faceApiSkipped) {
               // Without the model we can't confirm a face — let user continue after 4s
               aligned = true;
               continueBtn.disabled = false;
-              setupStatus.innerHTML = '✓ Camera active (face-detection model not loaded — manual check by admin).';
+              if (!window._faceApiSkipped) {
+                setupStatus.innerHTML = '✓ Camera active (face-detection model not loaded — manual check by admin).';
+              }
               clearInterval(setupTick);
               return;
             }
