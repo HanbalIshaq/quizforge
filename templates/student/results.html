@@ -54,8 +54,8 @@
           {% if q.options %}
             <ul class="text-sm space-y-1">
               {% for opt in q.options %}
-                {% set is_correct = loop.index0 in q.correct_answers %}
-                {% set was_picked = a and a.value is not none and ((a.value is iterable and a.value is not string and loop.index0 in a.value) or (a.value == loop.index0)) %}
+                {% set is_correct = loop.index0 in (q.correct_answers|int_list) %}
+                {% set was_picked = a and a.value is not none and ((a.value is iterable and a.value is not string and loop.index0 in (a.value|int_list)) or (a.value|string == loop.index0|string)) %}
                 <li class="flex items-center gap-2
                   {% if is_correct %}text-emerald-700{% elif was_picked %}text-red-700{% endif %}">
                   <span class="w-5">{{ "ABCDEFGH"[loop.index0] }}.</span>

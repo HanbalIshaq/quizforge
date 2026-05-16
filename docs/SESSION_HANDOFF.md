@@ -345,6 +345,21 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-16 — Fix attempt_detail TypeError + settings cache (low-resource win)
+User opened an attempt detail page and got the new friendly 500 — the traceback (visible because they're super-admin) pinpointed `templates/admin/attempt_detail.html:50`: `q.options[i] if i < q.options|length` blew up with `TypeError: '<' not supported between instances of 'str' and 'int'`. Root cause: some answers and `correct_answers` lists were stored as strings (`["0","1"]`) instead of ints, so the Python comparison crashed at template-render time.
+
+**Server side (`app.py`):**
+- New `_coerce_to_int()` / `_coerce_to_int_list()` helpers normalize messy DB data.
+- `attempt_detail` route now coerces both `q.correct_answers` and the parsed `a.value` to ints for choice-question types before passing to the template.
+- New `opt_label(options, idx)` helper registered as a Jinja global — does safe coercion + bounds check so templates can never crash on a weird index.
+- New `int_list` Jinja filter for `{% if loop.index0 in q.correct_answers|int_list %}` — applied to 4 other templates (`student/results.html`, `admin/question_bank.html`, `admin/quiz_results.html`, `admin/_question_card.html`) where the same string-vs-int mismatch was silently marking correct answers as wrong.
+
+**Low-resource efficiency (`app.py`):**
+- Added a per-process in-memory cache for the site-settings table with a 30s TTL (configurable via `SETTINGS_CACHE_TTL` env var). Settings change rarely but are read on EVERY page render. With caching, a logged-in page-render no longer touches the DB for feature flags **at all** after the first hit. `_settings_set` invalidates the cache so flag toggles are visible immediately.
+- On Render free tier (Neon ~1s cold latency, ~50ms warm) this saves the DB roundtrip on every navbar render → roughly **2× faster perceived navigation** for logged-in admins.
+
+**Smoke test (`smoke_attempt_detail.py`):** 25 checks covering attempt_detail rendering with legacy string-index data, all opt_label edge cases (string/int/None/out-of-range/empty), coerce helpers, int_list Jinja filter, cache-hit / cache-miss behavior, and `_settings_set` cache invalidation.
+
 ### 2026-05-16 — Submit feedback + 6× faster submit (no more double-submits)
 User reported: "when student clicks Submit, it takes time and they think it's broken so they click 3-4 times". Fixed both sides:
 

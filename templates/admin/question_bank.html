@@ -70,7 +70,7 @@
           {% if it.options %}
             <ul class="mt-1 text-sm text-slate-600 space-y-0.5">
               {% for opt in it.options %}
-                <li>{{ "ABCDEFGH"[loop.index0] }}. {{ opt }}{% if loop.index0 in it.correct_answers %} <span class="text-emerald-600 text-xs">✓</span>{% endif %}</li>
+                <li>{{ "ABCDEFGH"[loop.index0] }}. {{ opt }}{% if loop.index0 in (it.correct_answers|int_list) %} <span class="text-emerald-600 text-xs">✓</span>{% endif %}</li>
               {% endfor %}
             </ul>
           {% endif %}

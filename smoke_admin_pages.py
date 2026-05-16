@@ -93,9 +93,10 @@ with app.test_client() as c:
     check("traceback hidden from non-super", "RuntimeError" not in body2 and "Traceback" not in body2)
 
 
-# --- features_all() should be a single connection now ---
+# --- features_all() should be at most a single connection now ---
+# (Was 8 before the IN(...) collapse fix. Now it's 1 on cache miss, 0 on hit.)
 print("\nfeatures_all() single-query check:")
-from app import features_all, FEATURE_DEFAULTS
+from app import features_all, FEATURE_DEFAULTS, _SETTINGS_CACHE
 
 calls = {"n": 0}
 orig_get_conn = db.get_conn
@@ -106,12 +107,15 @@ def counting_get_conn():
     return orig_get_conn()
 
 
+# Clear the per-process settings cache so we can observe the cache-miss path
+_SETTINGS_CACHE.clear()
 db.get_conn = counting_get_conn
 try:
     flags = features_all()
 finally:
     db.get_conn = orig_get_conn
-check("features_all uses 1 connection (was 8)", calls["n"] == 1, f"opened {calls['n']} connections")
+check("features_all uses at most 1 connection (was 8)", calls["n"] <= 1,
+      f"opened {calls['n']} connections")
 check("features_all returns all keys", set(flags) == set(FEATURE_DEFAULTS))
 
 

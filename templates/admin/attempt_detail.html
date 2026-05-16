@@ -47,9 +47,9 @@
         <span class="text-slate-500">Answer:</span>
         {% if q.options and a and a.value is not none %}
           {% if a.value is iterable and a.value is not string %}
-            {% for i in a.value %}{{ q.options[i] if i < q.options|length else i }}{% if not loop.last %}, {% endif %}{% endfor %}
+            {% for i in a.value %}{{ opt_label(q.options, i) }}{% if not loop.last %}, {% endif %}{% endfor %}
           {% else %}
-            {{ q.options[a.value] if (a.value is integer and a.value < q.options|length) else a.value }}
+            {{ opt_label(q.options, a.value) }}
           {% endif %}
         {% elif a %}
           {{ a.value }}
@@ -58,7 +58,7 @@
         {% endif %}
       </div>
       {% if q.correct_answers and q.options %}
-        <div class="text-xs text-emerald-700 mt-1">Correct: {% for i in q.correct_answers %}{{ q.options[i] if i < q.options|length else i }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+        <div class="text-xs text-emerald-700 mt-1">Correct: {% for i in q.correct_answers %}{{ opt_label(q.options, i) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
       {% elif q.correct_answers and q.type in ('short_answer', 'fill_blank') %}
         <div class="text-xs text-emerald-700 mt-1">Accepted: {{ q.correct_answers|join(' / ') }}</div>
       {% endif %}

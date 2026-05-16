@@ -119,9 +119,9 @@
               {% set pct = (n / s.total * 100) if s.total else 0 %}
               <div class="flex items-center gap-2 text-sm">
                 <span class="w-8 text-slate-400">{{ "ABCDEFGH"[loop.index0] }}.</span>
-                <span class="flex-1">{{ opt }} {% if loop.index0 in s.q.correct_answers %}<span class="text-emerald-600">&check;</span>{% endif %}</span>
+                <span class="flex-1">{{ opt }} {% if loop.index0 in (s.q.correct_answers|int_list) %}<span class="text-emerald-600">&check;</span>{% endif %}</span>
                 <div class="w-40 bg-slate-100 h-2 rounded overflow-hidden">
-                  <div class="h-2 {% if loop.index0 in s.q.correct_answers %}bg-emerald-500{% else %}bg-brand-500{% endif %}" style="width: {{ pct }}%"></div>
+                  <div class="h-2 {% if loop.index0 in (s.q.correct_answers|int_list) %}bg-emerald-500{% else %}bg-brand-500{% endif %}" style="width: {{ pct }}%"></div>
                 </div>
                 <span class="text-xs text-slate-500 w-12 text-right">{{ n }} ({{ '%.0f' % pct }}%)</span>
               </div>

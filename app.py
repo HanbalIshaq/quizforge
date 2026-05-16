@@ -204,21 +204,53 @@ def _settings_get(key: str, default=None):
         conn.close()
 
 
+# Per-process in-memory cache for site settings. Settings change rarely
+# (once per admin toggle) but are read on EVERY page render — caching them
+# turns a Neon roundtrip on every request into a memory read. The cache is
+# invalidated by `_settings_set` so flag changes propagate immediately on the
+# server that did the write. (Multi-worker setups still see at most a 30s
+# delay before all workers refresh; tunable via the TTL below.)
+_SETTINGS_CACHE: dict[str, tuple[float, str]] = {}
+_SETTINGS_CACHE_TTL = float(os.environ.get("SETTINGS_CACHE_TTL", "30"))
+_SETTINGS_CACHE_LOCK = threading.Lock()
+
+
 def _settings_get_many(keys: list[str]) -> dict[str, str]:
-    """Fetch many settings keys in one DB roundtrip. Avoids the
-    one-connection-per-key pattern that used to fire 8x on every page load."""
+    """Fetch many settings keys in one DB roundtrip, with a per-process cache.
+    Avoids the one-connection-per-key pattern that used to fire 8x on every
+    page load, AND avoids the DB roundtrip entirely for cached values."""
     if not keys:
         return {}
+    now = time.time()
+    result: dict[str, str] = {}
+    missing: list[str] = []
+    with _SETTINGS_CACHE_LOCK:
+        for k in keys:
+            entry = _SETTINGS_CACHE.get(k)
+            if entry and (now - entry[0]) < _SETTINGS_CACHE_TTL:
+                result[k] = entry[1]
+            else:
+                missing.append(k)
+    if not missing:
+        return result
+    # Cache miss / expired — fetch only the missing keys.
     conn = db.get_conn()
     try:
-        placeholders = ",".join(["?"] * len(keys))
+        placeholders = ",".join(["?"] * len(missing))
         rows = conn.execute(
             f"SELECT key, value FROM site_settings WHERE key IN ({placeholders})",
-            tuple(keys),
+            tuple(missing),
         ).fetchall()
-        return {r["key"]: r["value"] for r in rows if r["value"] is not None}
+        fresh = {r["key"]: r["value"] for r in rows if r["value"] is not None}
     finally:
         conn.close()
+    with _SETTINGS_CACHE_LOCK:
+        for k in missing:
+            v = fresh.get(k, FEATURE_DEFAULTS.get(k, ""))
+            _SETTINGS_CACHE[k] = (now, v)
+            if v is not None:
+                result[k] = v
+    return result
 
 
 def _settings_set(key: str, value: str):
@@ -231,6 +263,10 @@ def _settings_set(key: str, value: str):
         conn.commit()
     finally:
         conn.close()
+    # Invalidate the in-memory cache so the new value is read on the next
+    # call rather than waiting for the TTL.
+    with _SETTINGS_CACHE_LOCK:
+        _SETTINGS_CACHE[key] = (time.time(), value)
 
 
 def feature_enabled(name: str) -> bool:
@@ -328,6 +364,34 @@ def live_session_count(user_id: int) -> int:
         conn.close()
 
 
+def opt_label(options, idx):
+    """Safely render an option label given a possibly-mistyped index.
+
+    Templates used to do `q.options[i] if i < q.options|length else i`, which
+    blew up with TypeError when `i` was a string (legacy data, JSON-imported
+    quizzes, etc). This helper centralizes the coercion + bounds check so
+    no template can crash on a weird index again.
+    """
+    if not options:
+        return idx if idx is not None else ""
+    n = _coerce_to_int(idx, default=None)
+    if n is None or n < 0 or n >= len(options):
+        return idx if idx is not None else ""
+    return options[n]
+
+
+@app.template_filter("int_list")
+def _jinja_int_list(seq):
+    """Coerce a sequence to a list of ints, dropping items that can't convert.
+
+    Use in templates wherever an index is being membership-tested against
+    `correct_answers`, e.g. `{% if loop.index0 in q.correct_answers|int_list %}`.
+    Without this, legacy data that stored indices as strings (`["0","1"]`)
+    silently marks every option as wrong because `0 in ["0","1"]` is False.
+    """
+    return _coerce_to_int_list(seq or [])
+
+
 @app.context_processor
 def inject_globals():
     # Every template render hits this. If the DB is mid-hiccup we still want
@@ -339,6 +403,7 @@ def inject_globals():
         "QUESTION_TYPES": grading.QUESTION_TYPES,
         "asset_v": ASSET_VERSION,
         "features": {},
+        "opt_label": opt_label,
     }
     try:
         ctx["user"] = current_user()
@@ -1779,7 +1844,19 @@ def attempt_detail(quiz_id, aid):
         ).fetchall()]
         for q in questions:
             q["options"] = json.loads(q["options"] or "[]")
-            q["correct_answers"] = json.loads(q["correct_answers"] or "[]")
+            # correct_answers for choice types are indices. Legacy / imported
+            # data sometimes stored them as strings — coerce so the template
+            # comparison `i < q.options|length` doesn't blow up with
+            # "'<' not supported between 'str' and 'int'".
+            raw_correct = json.loads(q["correct_answers"] or "[]")
+            if q["type"] in ("mcq_single", "mcq_multi", "true_false", "dropdown", "poll"):
+                q["correct_answers"] = _coerce_to_int_list(raw_correct)
+            else:
+                q["correct_answers"] = raw_correct
+        # Normalize answer values for the same reason. Choice questions get
+        # int-or-list-of-int; everything else stays as the original JSON.
+        choice_types = {"mcq_single", "mcq_multi", "true_false", "dropdown", "poll"}
+        q_type_by_id = {q["id"]: q["type"] for q in questions}
         answers = conn.execute(
             "SELECT * FROM answers WHERE attempt_id=?", (aid,)
         ).fetchall()
@@ -1787,9 +1864,16 @@ def attempt_detail(quiz_id, aid):
         for a in answers:
             d = dict(a)
             try:
-                d["value"] = json.loads(d["answer"] or "null")
+                val = json.loads(d["answer"] or "null")
             except Exception:
-                d["value"] = d["answer"]
+                val = d["answer"]
+            qtype = q_type_by_id.get(d["question_id"])
+            if qtype in choice_types and val is not None:
+                if isinstance(val, list):
+                    val = _coerce_to_int_list(val)
+                else:
+                    val = _coerce_to_int(val, default=val)
+            d["value"] = val
             ans_by_qid[d["question_id"]] = d
         violations = [dict(v) for v in conn.execute(
             "SELECT * FROM violations WHERE attempt_id=? ORDER BY created_at", (aid,)
@@ -2360,6 +2444,46 @@ def quiz_save_draft(code):
         return jsonify({"ok": True, "attempt_id": attempt_id, "score": earned, "max_score": total, "percentage": pct})
     finally:
         conn.close()
+
+
+def _coerce_to_int(x, default=None):
+    """Best-effort int coercion. Returns default if x can't be made an int."""
+    if isinstance(x, bool):
+        # bool is a subclass of int — keep as int via int(x)
+        return int(x)
+    if isinstance(x, int):
+        return x
+    if isinstance(x, float):
+        try:
+            return int(x)
+        except Exception:
+            return default
+    if isinstance(x, str):
+        s = x.strip()
+        if not s:
+            return default
+        try:
+            return int(s)
+        except Exception:
+            try:
+                return int(float(s))
+            except Exception:
+                return default
+    return default
+
+
+def _coerce_to_int_list(seq):
+    """Map best-effort int coercion across a sequence, dropping items that can't
+    be converted. Used to normalize answer/correct-answer indices loaded from
+    the DB so templates can safely do `i < options|length` without 500ing."""
+    if seq is None:
+        return []
+    out = []
+    for item in seq:
+        v = _coerce_to_int(item, default=None)
+        if v is not None:
+            out.append(v)
+    return out
 
 
 def _parse_submitted(qtype: str, raw: list[str]):

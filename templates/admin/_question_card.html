@@ -12,7 +12,7 @@
             <li class="flex items-start gap-2">
               <span class="inline-block w-5 text-slate-400">{{ "ABCDEFGH"[loop.index0] }}.</span>
               <span>{{ opt }}</span>
-              {% if loop.index0 in q.correct_answers %}
+              {% if loop.index0 in (q.correct_answers|int_list) %}
                 <span class="text-emerald-600 text-xs">&check; correct</span>
               {% endif %}
             </li>
