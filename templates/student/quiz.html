@@ -86,6 +86,7 @@
 
         <div class="relative w-full max-w-md mx-auto mb-3 rounded-lg overflow-hidden bg-slate-900" style="aspect-ratio: 4/3;">
           <video id="proctor-video" autoplay muted playsinline class="absolute inset-0 w-full h-full object-cover"></video>
+          <canvas id="proctor-overlay" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
           {# Centering oval guide so user knows where to put their face #}
           <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
             <div id="proctor-oval" class="border-4 border-dashed border-white/70 rounded-full" style="width: 55%; aspect-ratio: 3/4;"></div>
@@ -107,7 +108,10 @@
 
     {# Small persistent preview pinned bottom-right during the exam #}
     <div id="proctor-preview" class="hidden fixed bottom-4 right-4 z-40 bg-black rounded-lg shadow-lg overflow-hidden border-2 border-purple-500">
-      <video id="proctor-mini-video" autoplay muted playsinline class="w-32 h-24 object-cover"></video>
+      <div class="relative w-32 h-24">
+        <video id="proctor-mini-video" autoplay muted playsinline class="absolute inset-0 w-full h-full object-cover"></video>
+        <canvas id="proctor-mini-overlay" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
+      </div>
       <div id="proctor-mini-status" class="text-center bg-purple-700 text-white text-xs py-0.5">🔴 Proctoring</div>
     </div>
   {% endif %}
@@ -1031,13 +1035,61 @@
       }
     }
 
+    function drawOverlay(canvas, video, detections, opts) {
+      if (!canvas || !video || !video.videoWidth) return;
+      // Match internal canvas resolution to displayed video size for crisp drawing
+      const displayW = video.clientWidth || canvas.clientWidth;
+      const displayH = video.clientHeight || canvas.clientHeight;
+      if (canvas.width !== displayW)  canvas.width  = displayW;
+      if (canvas.height !== displayH) canvas.height = displayH;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!detections || !detections.length) return;
+      // Scale detection coords (model space) → canvas (display) coords
+      const sx = canvas.width / video.videoWidth;
+      const sy = canvas.height / video.videoHeight;
+      const color = (opts && opts.color) || '#10b981';  // green
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 2;
+      detections.forEach(d => {
+        const box = d.detection ? d.detection.box : d.box;
+        if (box) {
+          ctx.strokeRect(box.x * sx, box.y * sy, box.width * sx, box.height * sy);
+        }
+        if (d.landmarks && d.landmarks.positions) {
+          d.landmarks.positions.forEach(p => {
+            ctx.beginPath();
+            ctx.arc(p.x * sx, p.y * sy, 1.6, 0, Math.PI * 2);
+            ctx.fill();
+          });
+          // Draw eye polygons + lip outline to look more "AI tracker"-ish
+          const pts = d.landmarks.positions;
+          const drawPolyline = (idxs, close=false) => {
+            ctx.beginPath();
+            idxs.forEach((idx, i) => {
+              const p = pts[idx];
+              if (i === 0) ctx.moveTo(p.x * sx, p.y * sy);
+              else ctx.lineTo(p.x * sx, p.y * sy);
+            });
+            if (close) ctx.closePath();
+            ctx.stroke();
+          };
+          ctx.lineWidth = 1.5;
+          drawPolyline([36,37,38,39,40,41], true);            // left eye
+          drawPolyline([42,43,44,45,46,47], true);            // right eye
+          drawPolyline([48,49,50,51,52,53,54,55,56,57,58,59], true); // outer lips
+        }
+      });
+    }
+
     if (cameraProctor) {
       setupVideo = document.getElementById('proctor-video');
       setupStatus = document.getElementById('proctor-status');
+      const setupOverlay = document.getElementById('proctor-overlay');
       const allowBtn = document.getElementById('proctor-allow');
       const continueBtn = document.getElementById('proctor-continue');
       const gate = document.getElementById('proctor-gate');
-      let aligned = false;
       let stableSec = 0;
 
       allowBtn.addEventListener('click', async () => {
@@ -1055,16 +1107,13 @@
           // Hard 15-second fallback: enable Continue even without face detection
           setTimeout(() => {
             if (!continueBtn.disabled) return;
-            aligned = true;            // ← unlock the click handler
             continueBtn.disabled = false;
             setupStatus.innerHTML = '✓ Camera active. Click <b>Begin exam</b>. (Face-detection may still be loading — admin will see snapshots.)';
           }, 15000);
 
-          // Setup detection loop: confirm 1 face for 3 consecutive checks before enabling Continue
+          // Setup detection loop: confirm 1 face for 3 consecutive checks; ALSO draw landmarks live
           const setupTick = setInterval(async () => {
             if (!ok || window._faceApiSkipped) {
-              // Without the model we can't confirm a face — let user continue after 4s
-              aligned = true;
               continueBtn.disabled = false;
               if (!window._faceApiSkipped) {
                 setupStatus.innerHTML = '✓ Camera active (face-detection model not loaded — manual check by admin).';
@@ -1076,77 +1125,83 @@
               const detections = await window.faceapi
                 .detectAllFaces(setupVideo, new window.faceapi.TinyFaceDetectorOptions({inputSize: 224, scoreThreshold: 0.3}))
                 .withFaceLandmarks(true);
+              let yaw = 0;
+              let overlayColor = '#10b981'; // green
               if (detections.length === 1) {
-                const yaw = estimateYaw(detections[0].landmarks);
+                yaw = estimateYaw(detections[0].landmarks);
                 if (Math.abs(yaw) < 0.12) {
                   stableSec++;
-                  setupStatus.innerHTML = `✓ Face detected — hold still… (${stableSec}/3)`;
+                  setupStatus.innerHTML = `✓ Face detected — hold still… (${stableSec}/3) · yaw=${yaw.toFixed(2)}`;
                   if (stableSec >= 3) {
-                    aligned = true;
                     continueBtn.disabled = false;
                     setupStatus.innerHTML = '✅ Face confirmed. Click <b>Begin exam</b>.';
-                    clearInterval(setupTick);
                   }
                 } else {
                   stableSec = 0;
-                  setupStatus.innerHTML = '↔ Face turned too much — please look straight at the screen.';
+                  overlayColor = '#f59e0b'; // amber
+                  setupStatus.innerHTML = `↔ Face turned (yaw=${yaw.toFixed(2)}) — look straight at the screen.`;
                 }
               } else if (detections.length === 0) {
                 stableSec = 0;
+                overlayColor = '#ef4444'; // red
                 setupStatus.innerHTML = '👤 No face detected — sit closer / improve lighting / center your face in the oval.';
               } else {
                 stableSec = 0;
+                overlayColor = '#ef4444';
                 setupStatus.innerHTML = `⚠ ${detections.length} faces detected — only you should be visible.`;
               }
-            } catch (_) {}
-          }, 1000);
+              drawOverlay(setupOverlay, setupVideo, detections, {color: overlayColor});
+            } catch (e) { console.error('[QuizForge] setup detect error', e); }
+          }, 700);
         } catch (e) {
           setupStatus.textContent = '✗ Camera blocked: ' + (e.message || e) + '. Allow camera in your browser and reload.';
         }
       });
 
       continueBtn.addEventListener('click', () => {
-        if (!aligned) return;
-        // Move stream to the mini-preview, hide the gate, start monitoring
+        if (continueBtn.disabled) return;   // ← only the disabled attribute gates progress
         miniVideo = document.getElementById('proctor-mini-video');
         miniStatus = document.getElementById('proctor-mini-status');
+        const miniOverlay = document.getElementById('proctor-mini-overlay');
         miniVideo.srcObject = proctorStream;
         document.getElementById('proctor-preview').classList.remove('hidden');
         gate.classList.add('hidden');
         proctorRunning = true;
         sendSnapshot('periodic', captureCanvas(miniVideo), 'entered exam');
 
-        // Live monitoring: every 4 seconds, run detect + log violations
+        // Live monitoring loop (1s — fast enough for live overlay; violations only after thresholds)
         const monitor = async () => {
           if (!proctorRunning) return;
-          // Without the AI model, just keep snapshotting — no face analysis possible
-          if (!window._faceApiReady) return;
-          if (!window.faceapi) return;
+          if (!window._faceApiReady || !window.faceapi) return;
           let detections = [];
           try {
             detections = await window.faceapi
               .detectAllFaces(miniVideo, new window.faceapi.TinyFaceDetectorOptions({inputSize: 224, scoreThreshold: 0.3}))
               .withFaceLandmarks(true);
           } catch (_) {}
+          let color = '#10b981';
           if (detections.length === 0) {
             consecutiveNoFace++;
-            if (consecutiveNoFace === 2) {
+            color = '#ef4444';
+            if (consecutiveNoFace === 8) {  // ~8s of no face
               sendSnapshot('no_face', captureCanvas(miniVideo), 'no face for 8s');
               miniStatus.textContent = '⚠ No face — please return';
               miniStatus.className = 'text-center bg-red-700 text-white text-xs py-0.5';
             }
           } else if (detections.length >= 2) {
             consecutiveNoFace = 0;
+            color = '#ef4444';
             sendSnapshot('multiple_faces', captureCanvas(miniVideo), detections.length + ' faces');
             miniStatus.textContent = '⚠ Multiple faces';
             miniStatus.className = 'text-center bg-red-700 text-white text-xs py-0.5';
           } else {
             consecutiveNoFace = 0;
             const yaw = estimateYaw(detections[0].landmarks);
-            const lookingAway = Math.abs(yaw) > 0.22;  // ~25–30° head turn
+            const lookingAway = Math.abs(yaw) > 0.22;
             if (lookingAway) {
               consecutiveAway++;
-              if (consecutiveAway === 2) {  // 8 seconds of looking away
+              color = '#f59e0b';
+              if (consecutiveAway === 8) {
                 sendSnapshot('looking_away', captureCanvas(miniVideo), 'yaw=' + yaw.toFixed(2));
                 miniStatus.textContent = '⚠ Look at the screen';
                 miniStatus.className = 'text-center bg-amber-600 text-white text-xs py-0.5';
@@ -1157,9 +1212,9 @@
               miniStatus.className = 'text-center bg-purple-700 text-white text-xs py-0.5';
             }
           }
+          drawOverlay(miniOverlay, miniVideo, detections, {color});
         };
-        setInterval(monitor, 4000);
-        // Periodic evidence snapshot
+        setInterval(monitor, 1000);   // 1s loop so the overlay looks live
         if (proctorInterval > 0) {
           setInterval(() => sendSnapshot('periodic', captureCanvas(miniVideo), ''), proctorInterval * 1000);
         }

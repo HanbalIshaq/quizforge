@@ -345,6 +345,9 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-16 — Live AI overlay + remove aligned-gate
+The proctor gate now draws a live AI tracker overlay on the camera feed — bounding box + 68 facial landmarks + eye polygons + lip outline. Updates every 700ms during setup and every 1 second during the exam, so the student can see the AI actually tracking them in real time. Color codes: green = looking straight, amber = face turned, red = no face / multiple faces. Also removed the brittle `aligned` flag from the Continue click handler — now the only gate is the button's `disabled` attribute, so any path that enables the button (3-stable-detections, skip-AI link, 15s fallback, model-not-loaded path) allows clicking. Same overlay added to the mini preview during the exam.
+
 ### 2026-05-16 — Camera v2 click-handler bug fix
 The 15-second fallback was enabling the green Continue button visually but the click handler `if (!aligned) return;` silently bailed because `aligned` stayed false. Now every "let the student proceed" path (model-loaded path, model-skipped path, 15-second timeout) sets `aligned = true` before unlocking the button. Verified: clicking the button now actually transitions into the exam.
 
