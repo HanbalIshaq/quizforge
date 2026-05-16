@@ -345,6 +345,46 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-16 — Distinct per-kind hub pages (Exam / Poll / Survey / Form / Live)
+User said all the service-type pages looked the same — `?kind=exam`, `?kind=poll`, etc. were just the same flat table with a different chip color, with no kind-relevant features or guidance. Built proper kind-specific hubs.
+
+**New `KIND_CONFIGS` in `app.py`** — single dict driving everything per kind:
+- `theme` (brand / amber / emerald / purple), `gradient_from/to`, `accent_text/bg/chip/border`
+- `tagline` + `subtitle` for the hero
+- `icon` (one big emoji)
+- `features`: 6 feature cards per kind with title + description
+- `templates`: kind-specific quick-start buttons
+- `tip`: kind-specific pro tip
+- `empty_cta`: friendly empty-state copy
+
+**New `templates/admin/hub.html`** — parameterized hub template with:
+1. **Hero banner** — gradient background, big icon, kind-specific tagline, inline "create new" form, stats tile on the right (yours / responses / avg score for exams / embed-ready for forms).
+2. **"What you can build" grid** — 6 feature cards from `KIND_CONFIGS`, each with icon + description.
+3. **"Start fast"** — quick-start template buttons + the "Download JSON template" link.
+4. **Pro tip** sidebar card in the kind's color theme.
+5. **Card grid** of the user's items (replaces the old table) with kind-relevant stats:
+   - Exams show Avg % colored against the pass mark
+   - Polls/Surveys/Forms show last-response date
+   - Each card has Edit / Results / Share (one-click clipboard copy) / Live (exams only) buttons
+6. **Empty state** — friendly visual with a one-click "Create demo" CTA
+
+**`admin_dashboard` route** picks the template:
+- `?kind=all` (default) → original 5-card `dashboard.html` overview (unchanged)
+- `?kind=exam|poll|survey|form` → new `hub.html` parameterized by `KIND_CONFIGS[kind]`
+- Unknown kinds fall through to the all-view (safe)
+- Per-kind query now also fetches `avg_pct` and `last_response_at` for the richer card stats
+
+**`live_list.html` refreshed** to match — rose-themed hero banner + 4-tile feature row (Join code / Live leaderboard / Host controls / Saved to DB). Active vs total session count badges.
+
+**Smoke test (`smoke_kind_hubs.py`)** — 40 checks covering:
+- Each kind hub returns 200 with its unique tagline + icon + features + color theme
+- Cross-contamination check: each kind's page does NOT contain ANY other kind's tagline (verified all 12 cross-pairs)
+- All four hubs produce genuinely distinct HTML
+- "All" view still renders the original dashboard
+- Unknown ?kind value falls through safely without 500
+- Live page shows new hero + feature row
+- Exam hub shows Avg % column with real data
+
 ### 2026-05-16 — Fix Postgres deadlock on concurrent submit (auto-retry transaction)
 User got a 500 trying to submit a poll. The 500 page (the safety net from earlier today) showed the traceback immediately: `psycopg.errors.DeadlockDetected: deadlock detected ... while deleting tuple (9,47) in relation "answers"`. Two concurrent submissions were each holding KEY SHARE locks on `questions(id)` rows that the other transaction needed for its FK validation, and Postgres aborted one to break the cycle.
 

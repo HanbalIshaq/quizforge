@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}{{ kind_conf.title }} &middot; QuizForge{% endblock %}
+{% block content %}
+
+{# ── breadcrumb ── #}
+<a href="{{ url_for('admin_dashboard') }}"
+   class="text-sm text-slate-500 hover:text-slate-700 inline-flex items-center gap-1 mb-4">
+  &larr; <span>Back to dashboard</span>
+</a>
+
+{# ═══════════════════ HERO ═══════════════════
+   Big gradient header that announces what this content type is for.
+   Color theme is driven entirely by kind_conf, so each kind page
+   feels visually distinct even though the template is shared.
+#}
+<section class="rounded-2xl bg-gradient-to-br {{ kind_conf.gradient_from }} {{ kind_conf.gradient_to }} p-6 sm:p-8 mb-6 border {{ kind_conf.accent_border }}">
+  <div class="flex items-start justify-between flex-wrap gap-6">
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-3">
+        <span class="text-4xl sm:text-5xl drop-shadow-sm">{{ kind_conf.icon }}</span>
+        <div>
+          <p class="text-xs uppercase tracking-wider {{ kind_conf.accent_text }} font-semibold">{{ kind_conf.title }}</p>
+          <h1 class="text-2xl sm:text-3xl font-bold text-slate-900 mt-0.5">{{ kind_conf.tagline }}</h1>
+        </div>
+      </div>
+      <p class="mt-3 text-sm sm:text-base text-slate-700 max-w-2xl">{{ kind_conf.subtitle }}</p>
+
+      {# Inline "Create new" form right in the hero — fastest path to first quiz #}
+      <form method="post" action="{{ url_for('quiz_new') }}"
+            class="mt-5 flex flex-wrap gap-2 max-w-2xl">
+        <input type="hidden" name="kind" value="{{ kind }}" />
+        <input name="title" required
+               placeholder="Name your {{ kind }} and hit enter…"
+               class="flex-1 min-w-0 px-4 py-2.5 border border-white/70 bg-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-{{ kind_conf.theme }}-400" />
+        <button class="px-5 py-2.5 {{ kind_conf.accent_bg }} {{ kind_conf.accent_bg_hover }} text-white rounded-lg text-sm font-medium whitespace-nowrap inline-flex items-center gap-1.5">
+          <span>+</span> New {{ kind }}
+        </button>
+      </form>
+    </div>
+
+    {# Stats tile on the right #}
+    <div class="grid grid-cols-2 gap-3 min-w-[16rem]">
+      <div class="bg-white/80 backdrop-blur rounded-xl p-3 border border-white/60">
+        <p class="text-xs text-slate-500 uppercase tracking-wider">Yours</p>
+        <p class="text-2xl font-bold {{ kind_conf.accent_text }} mt-1">{{ counts[kind] or 0 }}</p>
+      </div>
+      <div class="bg-white/80 backdrop-blur rounded-xl p-3 border border-white/60">
+        <p class="text-xs text-slate-500 uppercase tracking-wider">Responses</p>
+        <p class="text-2xl font-bold text-slate-900 mt-1">{{ total_responses }}</p>
+      </div>
+      {% if kind == 'exam' and avg_pct is not none %}
+        <div class="bg-white/80 backdrop-blur rounded-xl p-3 border border-white/60 col-span-2">
+          <p class="text-xs text-slate-500 uppercase tracking-wider">Average score (all exams)</p>
+          <p class="text-2xl font-bold {{ 'text-emerald-700' if avg_pct >= 60 else 'text-amber-700' }} mt-1">
+            {{ '%.0f'|format(avg_pct) }}%
+          </p>
+        </div>
+      {% elif kind == 'form' %}
+        <div class="bg-white/80 backdrop-blur rounded-xl p-3 border border-white/60 col-span-2">
+          <p class="text-xs text-slate-500 uppercase tracking-wider">Embed-ready</p>
+          <p class="text-sm text-slate-700 mt-1">Public share link · iframe-friendly · no signup</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+
+{# ═══════════════════ "WHAT YOU CAN BUILD" FEATURE GRID ═══════════════════
+   Pulled from kind_conf.features. Each kind has its own list of 6, so the
+   page is genuinely informative — not generic boilerplate.
+#}
+<section class="mb-8">
+  <div class="flex items-baseline justify-between mb-3">
+    <h2 class="text-lg font-semibold text-slate-900">What you can build with {{ kind_conf.title|lower }}</h2>
+    <a href="{{ url_for('features_page') }}" class="text-sm {{ kind_conf.accent_text }} hover:underline">See all features &rarr;</a>
+  </div>
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+    {% for f in kind_conf.features %}
+      <div class="bg-white border border-slate-200 rounded-xl p-4 hover:border-slate-300 hover:shadow-sm transition">
+        <div class="flex items-start gap-3">
+          <span class="text-2xl flex-shrink-0">{{ f.i }}</span>
+          <div class="min-w-0">
+            <p class="font-semibold text-slate-900">{{ f.t }}</p>
+            <p class="text-xs text-slate-500 mt-1 leading-relaxed">{{ f.d }}</p>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+
+{# ═══════════════════ START FAST ═══════════════════
+   Quick-launch templates and tips. Each kind has different starters.
+#}
+<section class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+  <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5">
+    <p class="font-semibold text-slate-900 mb-1">🚀 Start fast</p>
+    <p class="text-xs text-slate-500 mb-3">Skip the blank page — these one-click templates create a working {{ kind }} you can edit and share.</p>
+    <div class="flex flex-wrap gap-2">
+      {% for t in kind_conf.templates %}
+        {% if t.via == 'demo' %}
+          <form method="post" action="{{ url_for('quiz_demo_create') }}" class="inline">
+            <input type="hidden" name="kind" value="{{ t.kind }}" />
+            <button class="px-3 py-2 {{ t.color }} text-white rounded-lg text-sm hover:opacity-90 transition">
+              {{ t.label }}
+            </button>
+          </form>
+        {% elif t.via == 'url' %}
+          <a href="{{ url_for(t.url_name) }}"
+             class="px-3 py-2 {{ t.color }} text-white rounded-lg text-sm hover:opacity-90 transition">
+            {{ t.label }}
+          </a>
+        {% elif t.via == 'ai_redirect' %}
+          <a href="{{ url_for('admin_dashboard') }}#ai-generate"
+             class="px-3 py-2 {{ t.color }} text-white rounded-lg text-sm hover:opacity-90 transition"
+             title="Create a new {{ kind }} then use the AI Generate button inside the editor">
+            {{ t.label }}
+          </a>
+        {% endif %}
+      {% endfor %}
+      <a href="{{ url_for('template_download_json') }}" download
+         class="px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm hover:bg-slate-50 transition">
+        ⬇ Download JSON template
+      </a>
+    </div>
+  </div>
+
+  {# Pro tip card #}
+  <div class="bg-{{ kind_conf.theme }}-50 border {{ kind_conf.accent_border }} rounded-xl p-5">
+    <p class="font-semibold {{ kind_conf.accent_text }} mb-1 flex items-center gap-2">
+      <span class="text-lg">💡</span> Pro tip
+    </p>
+    <p class="text-sm text-slate-700 leading-relaxed">{{ kind_conf.tip }}</p>
+  </div>
+</section>
+
+
+{# ═══════════════════ YOUR {{ KIND }} — CARD GRID ═══════════════════
+   Way more visual than the old flat table. Each card shows kind-relevant
+   stats (pass rate for exams, top option for polls, etc.) and has quick
+   actions for edit/results/share/live.
+#}
+<section>
+  <div class="flex items-baseline justify-between mb-3">
+    <h2 class="text-lg font-semibold text-slate-900">Your {{ kind_conf.title|lower }}</h2>
+    {% if quizzes %}
+      <p class="text-xs text-slate-500">{{ quizzes|length }} total &middot; {{ total_responses }} responses</p>
+    {% endif %}
+  </div>
+
+  {% if quizzes %}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {% for q in quizzes %}
+        <div class="bg-white border border-slate-200 rounded-xl p-4 hover:border-{{ kind_conf.theme }}-300 hover:shadow-md transition group">
+          {# header: title + status #}
+          <div class="flex items-start justify-between gap-2 mb-2">
+            <a href="{{ url_for('quiz_edit', quiz_id=q.id) }}"
+               class="font-semibold text-slate-900 hover:{{ kind_conf.accent_text }} line-clamp-2 leading-snug">
+              {{ q.title or 'Untitled' }}
+            </a>
+            {% if not q.is_published %}
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 whitespace-nowrap">Draft</span>
+            {% else %}
+              <span class="text-[10px] px-1.5 py-0.5 rounded {{ kind_conf.accent_chip }} whitespace-nowrap">Live</span>
+            {% endif %}
+          </div>
+
+          {# kind-specific stats row #}
+          <div class="grid grid-cols-3 gap-2 my-3 text-center">
+            <div>
+              <p class="text-xs text-slate-400 uppercase tracking-wider">Q's</p>
+              <p class="text-lg font-bold text-slate-900">{{ q.n_q }}</p>
+            </div>
+            <div>
+              <p class="text-xs text-slate-400 uppercase tracking-wider">Resp.</p>
+              <p class="text-lg font-bold {{ kind_conf.accent_text }}">{{ q.n_a }}</p>
+            </div>
+            <div>
+              {% if kind == 'exam' and q.avg_pct is not none %}
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Avg %</p>
+                <p class="text-lg font-bold {{ 'text-emerald-600' if q.avg_pct >= (q.pass_mark or 60) else 'text-amber-600' }}">
+                  {{ '%.0f'|format(q.avg_pct) }}%
+                </p>
+              {% elif kind == 'exam' %}
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Pass</p>
+                <p class="text-lg font-bold text-slate-400">—</p>
+              {% else %}
+                <p class="text-xs text-slate-400 uppercase tracking-wider">Last</p>
+                <p class="text-xs font-medium text-slate-700 mt-1.5">
+                  {{ fmt_ts(q.last_response_at).split(' ')[0] if q.last_response_at else '—' }}
+                </p>
+              {% endif %}
+            </div>
+          </div>
+
+          {# share + last updated #}
+          <div class="flex items-center justify-between text-xs text-slate-500 mb-3 pt-2 border-t border-slate-100">
+            <span class="font-mono">{{ q.share_code }}</span>
+            <span>{{ fmt_ts(q.updated_at) }}</span>
+          </div>
+
+          {# action buttons #}
+          <div class="flex flex-wrap gap-1.5">
+            <a href="{{ url_for('quiz_edit', quiz_id=q.id) }}"
+               class="flex-1 text-center text-xs px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded transition">Edit</a>
+            <a href="{{ url_for('quiz_results', quiz_id=q.id) }}"
+               class="flex-1 text-center text-xs px-2 py-1.5 {{ kind_conf.accent_chip }} hover:opacity-80 rounded transition">Results</a>
+            <button type="button"
+                    onclick="navigator.clipboard.writeText(location.origin + '/q/{{ q.share_code }}'); this.textContent='✓ Copied'; setTimeout(()=>this.textContent='Share',1500)"
+                    class="flex-1 text-xs px-2 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 rounded transition">Share</button>
+            {% if features.feature_live_mode and kind == 'exam' %}
+              <form method="post" action="{{ url_for('live_start', quiz_id=q.id) }}" class="inline">
+                <button class="text-xs px-2 py-1.5 bg-rose-600 text-white rounded hover:bg-rose-700 transition" title="Start a Kahoot-style live session">
+                  🎮 Live
+                </button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    {# Friendly empty state with kind-specific copy + the demo button as a strong CTA #}
+    <div class="bg-white border-2 border-dashed border-slate-200 rounded-xl p-12 text-center">
+      <p class="text-5xl mb-3">{{ kind_conf.icon }}</p>
+      <p class="text-lg font-semibold text-slate-900 mb-2">No {{ kind_conf.title|lower }} yet</p>
+      <p class="text-sm text-slate-500 max-w-md mx-auto mb-5">{{ kind_conf.empty_cta }}</p>
+      <div class="flex flex-wrap justify-center gap-2">
+        <form method="post" action="{{ url_for('quiz_demo_create') }}" class="inline">
+          <input type="hidden" name="kind" value="{{ kind }}" />
+          <button class="px-4 py-2.5 {{ kind_conf.accent_bg }} {{ kind_conf.accent_bg_hover }} text-white rounded-lg text-sm font-medium">
+            ✨ Create demo {{ kind }} (one click)
+          </button>
+        </form>
+        <a href="{{ url_for('features_page') }}"
+           class="px-4 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg text-sm">
+          Learn more
+        </a>
+      </div>
+    </div>
+  {% endif %}
+</section>
+
+{% endblock %}

@@ -817,17 +817,137 @@ def site_user_action(user_id, action):
 
 # ---------- admin: dashboard + CRUD ----------
 
+# Per-kind hub config: hero copy, theme colors, feature highlights, starter
+# templates, pro tips. Each filtered dashboard view (?kind=exam, ?kind=poll,
+# etc.) renders a distinct page styled with this config — instead of every
+# kind showing the same flat table.
+KIND_CONFIGS: dict[str, dict] = {
+    "exam": {
+        "title": "Exams & Quizzes",
+        "tagline": "Build assessments that prove mastery.",
+        "subtitle": "Auto-graded online tests with anti-cheating, time limits, certificates and 30+ question types.",
+        "icon": "📝",
+        "theme": "brand",  # tailwind brand-* (indigo)
+        "gradient_from": "from-brand-50",
+        "gradient_to": "to-indigo-100",
+        "accent_text": "text-brand-700",
+        "accent_bg": "bg-brand-600",
+        "accent_bg_hover": "hover:bg-brand-700",
+        "accent_border": "border-brand-300",
+        "accent_chip": "bg-brand-100 text-brand-800",
+        "features": [
+            {"i": "⚡", "t": "Auto-grading", "d": "Instant scoring on submit. MCQ, true/false, fill-blank, matching, ordering — all gradeable."},
+            {"i": "🛡️", "t": "Anti-cheating", "d": "Tab-switch detection, fullscreen lock, paste blocking, IP allow-list, camera proctoring."},
+            {"i": "🏆", "t": "Certificates", "d": "PDF certificates auto-issued on pass, with a unique verification URL."},
+            {"i": "⏱️", "t": "Time limits", "d": "Per-question OR overall timer with auto-submit when time runs out."},
+            {"i": "🎯", "t": "Randomization", "d": "Question + option order shuffled per attempt — hash-seeded, no collisions."},
+            {"i": "📈", "t": "Per-question stats", "d": "See which questions tripped students up. Drill into individual attempts."},
+        ],
+        "templates": [
+            {"label": "📝 Demo Exam (every question type)", "kind": "exam", "via": "demo", "color": "bg-brand-600"},
+            {"label": "🤖 Generate with AI", "url_name": "admin_dashboard", "via": "ai_redirect", "color": "bg-purple-600"},
+            {"label": "📚 From your Question Bank", "url_name": "bank_list", "via": "url", "color": "bg-emerald-600"},
+        ],
+        "tip": "Enable camera proctoring for high-stakes exams — students see live AI tracking on their webcam and snapshots are saved per attempt.",
+        "empty_cta": "Create your first exam to start running auto-graded assessments.",
+    },
+    "poll": {
+        "title": "Polls",
+        "tagline": "Capture opinions in real time.",
+        "subtitle": "Live charts, NPS scoring, word clouds and one-click sharing. Run a poll in 30 seconds.",
+        "icon": "📊",
+        "theme": "amber",
+        "gradient_from": "from-amber-50",
+        "gradient_to": "to-orange-100",
+        "accent_text": "text-amber-700",
+        "accent_bg": "bg-amber-600",
+        "accent_bg_hover": "hover:bg-amber-700",
+        "accent_border": "border-amber-300",
+        "accent_chip": "bg-amber-100 text-amber-800",
+        "features": [
+            {"i": "📊", "t": "Live bar charts", "d": "Every option shows real-time response counts and percentages."},
+            {"i": "🎯", "t": "NPS scoring", "d": "0–10 Net Promoter Score widget with promoter/passive/detractor breakdown."},
+            {"i": "☁️", "t": "Word clouds", "d": "Open-text responses visualized as a weighted word cloud."},
+            {"i": "🧹", "t": "Auto-dedupe", "d": "One response per email — duplicate clicks return the existing answer."},
+            {"i": "🚀", "t": "Instant share", "d": "Copy the share link or QR code — no account needed for respondents."},
+            {"i": "📥", "t": "CSV / Excel export", "d": "Download every response as a spreadsheet for further analysis."},
+        ],
+        "templates": [
+            {"label": "📊 Demo Poll (NPS + multi-choice)", "kind": "poll", "via": "demo", "color": "bg-amber-600"},
+        ],
+        "tip": "Use NPS questions for customer satisfaction. The promoter/detractor breakdown updates as responses come in.",
+        "empty_cta": "Create your first poll — name it, add a question, share the link.",
+    },
+    "survey": {
+        "title": "Surveys",
+        "tagline": "Anonymous research, faster.",
+        "subtitle": "Honest feedback with zero identifying data. Multi-question surveys, rating scales, branching logic.",
+        "icon": "📋",
+        "theme": "emerald",
+        "gradient_from": "from-emerald-50",
+        "gradient_to": "to-teal-100",
+        "accent_text": "text-emerald-700",
+        "accent_bg": "bg-emerald-600",
+        "accent_bg_hover": "hover:bg-emerald-700",
+        "accent_border": "border-emerald-300",
+        "accent_chip": "bg-emerald-100 text-emerald-800",
+        "features": [
+            {"i": "🕵️", "t": "Truly anonymous", "d": "Names not required, no IP shown. Built for honest answers."},
+            {"i": "⭐", "t": "Rating scales", "d": "1–5 stars, NPS 0–10, sliders, Likert agreement scales — pick the right tool."},
+            {"i": "✅", "t": "Required fields", "d": "Per-question Required toggle with shake animation if skipped."},
+            {"i": "🔀", "t": "Question order", "d": "Randomize question order per respondent to reduce position bias."},
+            {"i": "📊", "t": "Aggregate insights", "d": "Per-question breakdown chart — see distribution without seeing identities."},
+            {"i": "📥", "t": "Export everything", "d": "Download raw responses as CSV/Excel for SPSS, R, Python analysis."},
+        ],
+        "templates": [
+            {"label": "📋 Employee feedback survey", "kind": "survey", "via": "demo", "color": "bg-emerald-600"},
+        ],
+        "tip": "Surveys never collect names by default — perfect for product feedback, exit interviews, and culture checks where honesty matters.",
+        "empty_cta": "Create your first survey to start gathering candid, anonymous feedback.",
+    },
+    "form": {
+        "title": "Forms",
+        "tagline": "JotForm-style data collection.",
+        "subtitle": "30+ field types, conditional flow, file uploads, signatures. Replace JotForm without paying $35/mo.",
+        "icon": "🗂️",
+        "theme": "purple",
+        "gradient_from": "from-purple-50",
+        "gradient_to": "to-fuchsia-100",
+        "accent_text": "text-purple-700",
+        "accent_bg": "bg-purple-600",
+        "accent_bg_hover": "hover:bg-purple-700",
+        "accent_border": "border-purple-300",
+        "accent_chip": "bg-purple-100 text-purple-800",
+        "features": [
+            {"i": "📝", "t": "30+ field types", "d": "Name, email, phone, date, time, address, signature, file upload, slider, NPS, consent, section breaks…"},
+            {"i": "📎", "t": "File uploads", "d": "Accept resumes, ID scans, signed contracts. Stored securely against the submission."},
+            {"i": "✍️", "t": "E-signatures", "d": "Canvas signature pad with touch support. Captures intent at submission time."},
+            {"i": "👀", "t": "Paginated flow", "d": "One question at a time with smooth animations — friendlier than a wall of inputs."},
+            {"i": "✅", "t": "Per-field required", "d": "Required toggle + shake-and-focus on empty submit. Validation without an alert dialog."},
+            {"i": "🔗", "t": "Embed anywhere", "d": "Public share link works in any iframe. No login required for respondents."},
+        ],
+        "templates": [
+            {"label": "🗂️ Demo Form (every field type)", "kind": "form", "via": "demo", "color": "bg-purple-600"},
+        ],
+        "tip": "Forms default to paginated mode — students see one field at a time. Toggle it off in settings if you prefer a single-page form.",
+        "empty_cta": "Create your first form — collect leads, registrations, applications, or any structured data.",
+    },
+}
+
+
 @app.route("/admin")
 @login_required
 def admin_dashboard():
     kind_filter = (request.args.get("kind") or "all").strip().lower()
     conn = db.get_conn()
     try:
-        if kind_filter in ("exam", "poll", "survey"):
+        if kind_filter in KIND_CONFIGS:
             rows = conn.execute(
                 """SELECT q.*,
                           (SELECT COUNT(*) FROM questions WHERE quiz_id=q.id) AS n_q,
-                          (SELECT COUNT(*) FROM attempts WHERE quiz_id=q.id AND submitted_at IS NOT NULL) AS n_a
+                          (SELECT COUNT(*) FROM attempts WHERE quiz_id=q.id AND submitted_at IS NOT NULL) AS n_a,
+                          (SELECT AVG(percentage) FROM attempts WHERE quiz_id=q.id AND submitted_at IS NOT NULL) AS avg_pct,
+                          (SELECT MAX(submitted_at) FROM attempts WHERE quiz_id=q.id AND submitted_at IS NOT NULL) AS last_response_at
                    FROM quizzes q WHERE user_id=? AND kind=? ORDER BY q.updated_at DESC""",
                 (session["uid"], kind_filter),
             ).fetchall()
@@ -841,6 +961,26 @@ def admin_dashboard():
             ).fetchall()
         quizzes = [dict(r) for r in rows]
         counts = quiz_kind_counts(session["uid"])
+
+        # Per-kind hub view if a specific kind is selected, otherwise the
+        # high-level "all" dashboard with the 5 content-type cards.
+        if kind_filter in KIND_CONFIGS:
+            kind_conf = KIND_CONFIGS[kind_filter]
+            # Compute aggregate stats for the header tile (total responses for
+            # this kind, average percentage when relevant, etc.).
+            total_responses = sum(q.get("n_a") or 0 for q in quizzes)
+            avg_pct_values = [q["avg_pct"] for q in quizzes if q.get("avg_pct") is not None]
+            avg_pct = (sum(avg_pct_values) / len(avg_pct_values)) if avg_pct_values else None
+            return render_template(
+                "admin/hub.html",
+                kind=kind_filter,
+                kind_conf=kind_conf,
+                quizzes=quizzes,
+                counts=counts,
+                total_responses=total_responses,
+                avg_pct=avg_pct,
+                live_count=live_session_count(session["uid"]),
+            )
         return render_template(
             "admin/dashboard.html",
             quizzes=quizzes, counts=counts,
