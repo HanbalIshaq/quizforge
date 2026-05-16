@@ -78,11 +78,14 @@ with app.test_client() as c:
 
 print("\nServer-side: submit uses batch executemany():")
 import inspect
-src = inspect.getsource(app.view_functions["take_quiz"])
-check("submit handler uses conn.executemany", "conn.executemany" in src)
-check("submit handler builds rows_to_insert list", "rows_to_insert" in src)
-check("submit handler no longer calls execute inside the question loop for INSERTs",
-      "for q in questions:" in src and src.count("INSERT INTO answers(") == 1)
+from app import _submit_quiz_with_retry
+# The submit work moved into a helper that's wrapped in db.run_in_txn for
+# deadlock retry. Inspect that helper instead of take_quiz directly.
+src = inspect.getsource(_submit_quiz_with_retry)
+check("submit helper uses conn.executemany", "conn.executemany" in src)
+check("submit helper builds rows_to_insert list", "rows_to_insert" in src)
+check("submit helper no longer calls execute inside the question loop for INSERTs",
+      src.count("INSERT INTO answers(") == 1)
 
 
 print("\nexecutemany() actually works (SQLite path):")

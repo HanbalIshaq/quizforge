@@ -345,6 +345,18 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-16 — Fix Postgres deadlock on concurrent submit (auto-retry transaction)
+User got a 500 trying to submit a poll. The 500 page (the safety net from earlier today) showed the traceback immediately: `psycopg.errors.DeadlockDetected: deadlock detected ... while deleting tuple (9,47) in relation "answers"`. Two concurrent submissions were each holding KEY SHARE locks on `questions(id)` rows that the other transaction needed for its FK validation, and Postgres aborted one to break the cycle.
+
+Three-layer fix:
+1. **Auto-retry the transaction.** New `db.is_retryable_db_error(e)` classifies errors by SQLSTATE (40P01 deadlock, 40001 serialization failure) and class name. New `db.run_in_txn(work, retries=3, backoff=0.1)` runs the work function in a fresh connection, retrying with exponential backoff + jitter on retryable errors only. Postgres documentation explicitly recommends this as the right response to deadlocks.
+2. **Sort INSERTs by `question_id`.** Concurrent submissions on the same quiz now acquire FK row-locks in the same order, eliminating the cycle that triggers the deadlock in the first place. Retry is the safety net; this is the prevention.
+3. **Skip the no-op DELETE.** On a fresh draft with no auto-save data, we used to run `DELETE FROM answers WHERE attempt_id=?` anyway — wasting a roundtrip AND adding the very lock that contributed to the deadlock context. Now we run a `SELECT 1 ... LIMIT 1` first and only DELETE if there's something to delete.
+
+Submit logic was refactored into `_submit_quiz_with_retry()` and `_issue_certificate_if_missing()` helpers, both of which use `db.run_in_txn`. The work is idempotent — `_get_or_create_draft` reuses an existing draft on retry, so re-running the function just rewrites the same answers.
+
+Smoke test (`smoke_deadlock_retry.py`): 19 checks including `is_retryable_db_error` classification (sqlstate + class-name + message-based), `run_in_txn` retries-then-succeeds and gives-up-after-N, non-retryable errors propagate immediately without retry, sorted-INSERT order, skip-DELETE behavior, and a real end-to-end submit that fakes a deadlock on the first attempt and verifies recovery.
+
 ### 2026-05-16 — Fix attempt_detail TypeError + settings cache (low-resource win)
 User opened an attempt detail page and got the new friendly 500 — the traceback (visible because they're super-admin) pinpointed `templates/admin/attempt_detail.html:50`: `q.options[i] if i < q.options|length` blew up with `TypeError: '<' not supported between instances of 'str' and 'int'`. Root cause: some answers and `correct_answers` lists were stored as strings (`["0","1"]`) instead of ints, so the Python comparison crashed at template-render time.
 

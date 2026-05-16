@@ -2040,6 +2040,117 @@ def _get_or_create_draft(conn, quiz):
     return cur.lastrowid
 
 
+def _submit_quiz_with_retry(*, code, quiz, questions, is_scored,
+                            student_name, student_email):
+    """Persist a quiz submission, retrying the whole transaction on a Postgres
+    deadlock or serialization failure. Returns a dict with the final scoring
+    info so the caller can issue certificates / redirect.
+
+    Why retries are needed: when N students submit on the same quiz at the
+    same time, every INSERT into `answers` takes a KEY SHARE lock on the
+    referenced `questions(id)` row. With concurrent inserts touching the
+    same questions, Postgres can detect a cycle and abort one transaction
+    with DeadlockDetected. The canonical fix is to re-run the transaction.
+    """
+    quiz_id = quiz["id"]
+    quiz_kind = quiz["kind"]
+    # Sort questions deterministically by id BEFORE we use them as the
+    # write order — concurrent submissions on the same quiz will now acquire
+    # FK locks in the same order, which eliminates most of the deadlock
+    # window (the retry below catches the rest).
+    questions_sorted = sorted(questions, key=lambda q: q["id"])
+    remote_addr = request.remote_addr
+
+    def _work(conn):
+        attempt_id = _get_or_create_draft(conn, quiz)
+        now = db.now_ts()
+        conn.execute(
+            "UPDATE attempts SET student_name=?, student_email=?, submitted_at=?, ip_address=? WHERE id=?",
+            (student_name, student_email, now, remote_addr, attempt_id),
+        )
+        # Only DELETE if there's actually something to delete. On a fresh
+        # submit (auto-save disabled / first attempt) this is a no-op and
+        # removes one full roundtrip + one set of FK locks that used to
+        # contribute to the deadlock window.
+        has_existing = conn.execute(
+            "SELECT 1 FROM answers WHERE attempt_id=? LIMIT 1", (attempt_id,)
+        ).fetchone()
+        if has_existing:
+            conn.execute("DELETE FROM answers WHERE attempt_id=?", (attempt_id,))
+
+        total_pts = 0.0
+        max_pts = 0.0
+        needs_grading = 0
+        rows_to_insert: list[tuple] = []
+        for q in questions_sorted:
+            max_pts += float(q["points"] or 1)
+            raw = request.form.getlist(f"q_{q['id']}")
+            value = _parse_submitted(q["type"], raw)
+            if is_scored:
+                is_correct, pts, manual = grading.grade_answer(q, value)
+            else:
+                is_correct, pts, manual = (None, 0.0, False)
+            if manual:
+                needs_grading = 1
+            if is_correct:
+                total_pts += pts
+            rows_to_insert.append((
+                attempt_id, q["id"], json.dumps(value),
+                None if is_correct is None else (1 if is_correct else 0),
+                pts,
+                0 if manual else 1,
+            ))
+        if rows_to_insert:
+            conn.executemany(
+                """INSERT INTO answers(attempt_id, question_id, answer, is_correct, points_earned, graded)
+                   VALUES(?,?,?,?,?,?)""",
+                rows_to_insert,
+            )
+        if is_scored:
+            pct = (total_pts / max_pts * 100) if max_pts else 0
+            conn.execute(
+                "UPDATE attempts SET score=?, max_score=?, percentage=?, needs_grading=? WHERE id=?",
+                (total_pts, max_pts, pct, needs_grading, attempt_id),
+            )
+        else:
+            pct = 0.0
+            conn.execute(
+                "UPDATE attempts SET score=0, max_score=0, percentage=0, needs_grading=0 WHERE id=?",
+                (attempt_id,),
+            )
+        conn.commit()
+        return {
+            "attempt_id": attempt_id,
+            "total_pts": total_pts,
+            "max_pts": max_pts,
+            "pct": pct,
+            "needs_grading": needs_grading,
+        }
+
+    return db.run_in_txn(_work)
+
+
+def _issue_certificate_if_missing(attempt_id, quiz_id, student_name,
+                                  total_pts, max_pts, pct):
+    """Issue a pass certificate for an attempt, idempotent on retry."""
+    def _work(conn):
+        existing = conn.execute(
+            "SELECT id FROM certificates WHERE attempt_id=?", (attempt_id,)
+        ).fetchone()
+        if existing:
+            return
+        serial = certificates.make_serial()
+        conn.execute(
+            """INSERT INTO certificates(attempt_id, quiz_id, serial, recipient_name,
+                                        score, max_score, percentage, issued_at)
+               VALUES(?,?,?,?,?,?,?,?)""",
+            (attempt_id, quiz_id, serial, student_name,
+             float(total_pts), float(max_pts), float(pct), db.now_ts()),
+        )
+        conn.commit()
+    db.run_in_txn(_work)
+
+
 @app.route("/q/<code>", methods=["GET", "POST"])
 def take_quiz(code):
     conn = db.get_conn()
@@ -2072,7 +2183,6 @@ def take_quiz(code):
             is_form = quiz["kind"] == "form"
             student_name = (request.form.get("student_name") or "").strip() or "Anonymous"
             student_email = (request.form.get("student_email") or "").strip()
-            now = db.now_ts()
             # For polls/surveys/forms: if this respondent already submitted, route them to their existing result.
             # Only block when we can confidently identify the same person (email present).
             # Without an email, two people with the same name are treated as different respondents.
@@ -2089,79 +2199,39 @@ def take_quiz(code):
                     flash("You've already submitted this poll — showing your existing response.", "success")
                     session.pop(f"draft_{quiz['id']}", None)
                     return redirect(url_for("quiz_result", code=code, attempt_id=existing["id"]))
-            # Finalize the existing draft if it exists, otherwise create a fresh attempt
-            attempt_id = _get_or_create_draft(conn, quiz)
-            conn.execute(
-                "UPDATE attempts SET student_name=?, student_email=?, submitted_at=?, ip_address=? WHERE id=?",
-                (student_name, student_email, now, request.remote_addr, attempt_id),
+
+            # ===== Submit transaction =====
+            # Run the whole submit inside a retry-on-deadlock wrapper. Two
+            # concurrent submissions on the same quiz can deadlock on FK
+            # row-locks against `questions` and `attempts`; Postgres handles
+            # the cycle by aborting one transaction and asking us to retry.
+            # The work is fully idempotent (we re-fetch / re-create the draft
+            # each retry) so re-running is safe.
+            attempt_result = _submit_quiz_with_retry(
+                code=code, quiz=quiz, questions=questions,
+                is_scored=is_scored,
+                student_name=student_name, student_email=student_email,
             )
-            # Replace answers (the auto-save may have left old data; rebuild from final submission)
-            conn.execute("DELETE FROM answers WHERE attempt_id=?", (attempt_id,))
-            total_pts = 0.0
-            max_pts = 0.0
-            needs_grading = 0
-            # Compute every row first, then INSERT them in a single batch. Doing
-            # N separate INSERTs used to add N network roundtrips on Neon (~50ms
-            # each) which made the submit visibly slow.
-            rows_to_insert: list[tuple] = []
-            for q in questions:
-                max_pts += float(q["points"] or 1)
-                raw = request.form.getlist(f"q_{q['id']}")
-                value = _parse_submitted(q["type"], raw)
-                if is_scored:
-                    is_correct, pts, manual = grading.grade_answer(q, value)
-                else:
-                    is_correct, pts, manual = (None, 0.0, False)
-                if manual:
-                    needs_grading = 1
-                if is_correct:
-                    total_pts += pts
-                rows_to_insert.append((
-                    attempt_id, q["id"], json.dumps(value),
-                    None if is_correct is None else (1 if is_correct else 0),
-                    pts,
-                    0 if manual else 1,
-                ))
-            if rows_to_insert:
-                conn.executemany(
-                    """INSERT INTO answers(attempt_id, question_id, answer, is_correct, points_earned, graded)
-                       VALUES(?,?,?,?,?,?)""",
-                    rows_to_insert,
-                )
-            if is_scored:
-                pct = (total_pts / max_pts * 100) if max_pts else 0
-                conn.execute(
-                    "UPDATE attempts SET score=?, max_score=?, percentage=?, needs_grading=? WHERE id=?",
-                    (total_pts, max_pts, pct, needs_grading, attempt_id),
-                )
-            else:
-                conn.execute(
-                    "UPDATE attempts SET score=0, max_score=0, percentage=0, needs_grading=0 WHERE id=?",
-                    (attempt_id,),
-                )
+            attempt_id = attempt_result["attempt_id"]
+            total_pts = attempt_result["total_pts"]
+            max_pts = attempt_result["max_pts"]
+            pct = attempt_result["pct"]
+            needs_grading = attempt_result["needs_grading"]
+
             # Clear the draft cookie so a NEW attempt starts a new draft
             session.pop(f"draft_{quiz['id']}", None)
-            conn.commit()
-            # Auto-issue certificate on pass (if feature enabled and exam has a pass mark)
+
+            # Auto-issue certificate on pass (if feature enabled and exam has a pass mark).
+            # Done OUTSIDE the retry-loop transaction so a deadlock during cert
+            # creation doesn't replay the whole submit.
             if (feature_enabled("feature_certificates")
                     and is_scored
                     and quiz["pass_mark"]
                     and (pct or 0) >= quiz["pass_mark"]
                     and not needs_grading):
-                # Avoid duplicate certificates for the same attempt
-                existing_cert = conn.execute(
-                    "SELECT id FROM certificates WHERE attempt_id=?", (attempt_id,)
-                ).fetchone()
-                if not existing_cert:
-                    serial = certificates.make_serial()
-                    conn.execute(
-                        """INSERT INTO certificates(attempt_id, quiz_id, serial, recipient_name,
-                                                    score, max_score, percentage, issued_at)
-                           VALUES(?,?,?,?,?,?,?,?)""",
-                        (attempt_id, quiz["id"], serial, student_name,
-                         float(total_pts), float(max_pts), float(pct), db.now_ts()),
-                    )
-                    conn.commit()
+                _issue_certificate_if_missing(
+                    attempt_id, quiz["id"], student_name, total_pts, max_pts, pct,
+                )
             return redirect(url_for("quiz_result", code=code, attempt_id=attempt_id))
         # GET — create / reuse a draft, load partial answers, randomize for this attempt
         attempt_id = _get_or_create_draft(conn, dict(quiz))

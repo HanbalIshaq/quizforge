@@ -199,6 +199,60 @@ _PG_CONNECT_TIMEOUT = int(os.environ.get("PG_CONNECT_TIMEOUT", "10"))
 _PG_CONNECT_RETRIES = int(os.environ.get("PG_CONNECT_RETRIES", "3"))
 
 
+def is_retryable_db_error(e: BaseException) -> bool:
+    """True for transient Postgres errors that are safe to retry by re-running
+    the whole transaction from scratch — primarily DeadlockDetected (40P01)
+    and SerializationFailure (40001). The Postgres docs explicitly call out
+    re-running the transaction as the correct response to these.
+
+    Detection by SQLSTATE / class name so we don't have to import psycopg
+    here (this module is also imported from SQLite-only environments).
+    """
+    sqlstate = getattr(e, "sqlstate", None) or getattr(e, "pgcode", None)
+    if sqlstate in ("40P01", "40001"):
+        return True
+    name = type(e).__name__
+    if name in ("DeadlockDetected", "SerializationFailure", "TransactionRollback"):
+        return True
+    # Some psycopg versions wrap deadlocks; check the chain.
+    msg = (str(e) or "").lower()
+    return "deadlock detected" in msg or "could not serialize" in msg
+
+
+def run_in_txn(work, retries: int = 3, backoff: float = 0.1):
+    """Run `work(conn)` inside a fresh connection, retrying on transient
+    Postgres serialization / deadlock errors. The work function MUST be
+    idempotent on retry — i.e. don't perform side effects (HTTP calls,
+    sending email, etc.) before commit, only after.
+
+    Returns whatever `work(conn)` returns. The function is responsible for
+    its own commit/rollback semantics on the happy path; we only rollback
+    on retryable errors before retrying."""
+    last_err: BaseException | None = None
+    for attempt in range(retries):
+        conn = get_conn()
+        try:
+            return work(conn)
+        except Exception as e:  # noqa: BLE001
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            if is_retryable_db_error(e) and attempt < retries - 1:
+                last_err = e
+                # Tiny jitter so two contending requests don't lockstep again.
+                time.sleep(backoff * (2 ** attempt) + (secrets.randbelow(50) / 1000.0))
+                continue
+            raise
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    if last_err is not None:
+        raise last_err
+
+
 def get_conn() -> Connection:
     if IS_POSTGRES:
         last_err = None
