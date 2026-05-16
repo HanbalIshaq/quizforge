@@ -991,23 +991,42 @@
     }
 
     async function loadFaceApi(status) {
-      if (window.faceapi && window.faceapi.nets.faceLandmark68Net.isLoaded) return true;
+      if (window._faceApiReady) return true;
       status && (status.textContent = 'Loading face-detection model…');
+      // Pinned version — library AND models from the same package guarantees compatibility
+      const FACE_API_JS = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.min.js';
+      const FACE_API_MODELS = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model/';
       try {
         if (!window.faceapi) {
-          await new Promise((res, rej) => {
-            const s = document.createElement('script');
-            s.src = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js';
-            s.onload = res; s.onerror = rej;
-            document.head.appendChild(s);
+          await new Promise((resolve, reject) => {
+            const tag = document.createElement('script');
+            tag.src = FACE_API_JS;
+            tag.onload = () => resolve();
+            tag.onerror = () => reject(new Error('Could not download face-api script'));
+            document.head.appendChild(tag);
           });
         }
-        const MODELS = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@latest/model/';
-        await window.faceapi.nets.tinyFaceDetector.loadFromUri(MODELS);
-        await window.faceapi.nets.faceLandmark68Net.loadFromUri(MODELS);
+        if (!window.faceapi || !window.faceapi.nets) throw new Error('face-api script loaded but global not available');
+        // .load() in vladmandic's fork accepts a URL string
+        await window.faceapi.nets.tinyFaceDetector.load(FACE_API_MODELS);
+        await window.faceapi.nets.faceLandmark68Net.load(FACE_API_MODELS);
+        window._faceApiReady = true;
         return true;
       } catch (e) {
-        status && (status.textContent = '⚠ Face-detection model failed to load. Snapshots will still be recorded.');
+        console.error('[QuizForge] face-api load failed:', e);
+        if (status) {
+          status.innerHTML = '⚠ Face-detection model could not load (' + (e.message || e) +
+            '). Camera will keep recording snapshots for admin review. ' +
+            '<button type="button" id="proctor-skip-model" class="underline">Continue without AI detection</button>';
+          const skip = document.getElementById('proctor-skip-model');
+          if (skip) skip.onclick = (ev) => {
+            ev.preventDefault();
+            window._faceApiSkipped = true;
+            const cont = document.getElementById('proctor-continue');
+            if (cont) cont.disabled = false;
+            status.textContent = '✓ Camera active (manual proctoring mode).';
+          };
+        }
         return false;
       }
     }
@@ -1033,6 +1052,12 @@
           const ok = await loadFaceApi(setupStatus);
           // Whether model loaded or not, take a baseline snapshot so admin always sees the student
           setTimeout(() => sendSnapshot('periodic', captureCanvas(setupVideo), 'baseline at start'), 1500);
+          // Hard 15-second fallback: enable Continue even without face detection
+          setTimeout(() => {
+            if (!continueBtn.disabled) return;
+            continueBtn.disabled = false;
+            setupStatus.innerHTML = '✓ Camera active. Click <b>Begin exam</b>. (Face-detection may still be loading — admin will see snapshots.)';
+          }, 15000);
 
           // Setup detection loop: confirm 1 face for 3 consecutive checks before enabling Continue
           const setupTick = setInterval(async () => {
@@ -1091,6 +1116,8 @@
         // Live monitoring: every 4 seconds, run detect + log violations
         const monitor = async () => {
           if (!proctorRunning) return;
+          // Without the AI model, just keep snapshotting — no face analysis possible
+          if (!window._faceApiReady) return;
           if (!window.faceapi) return;
           let detections = [];
           try {

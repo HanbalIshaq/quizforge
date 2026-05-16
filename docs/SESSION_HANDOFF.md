@@ -345,6 +345,9 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-16 — face-api loader fix
+The library/models URLs in v2 were mismatched (original face-api.js JS but vladmandic model paths). Pinned to `@vladmandic/face-api@1.7.13` for both library AND model weights, switched to `.load()` from `.loadFromUri()`. Added console.error logging and a visible "Continue without AI detection" fallback button if the model can't download. Hard 15-second fallback enables Continue even if everything fails so a student can't be locked out by a CDN hiccup.
+
 ### 2026-05-16 — Camera proctoring v2 (full-page gate, face-angle detection)
 Replaced the inline consent banner with a **full-page modal gate** that blocks the entire quiz until camera is enabled AND a face is stably detected for 3 consecutive seconds. Setup instructions on the gate (lighting / oval alignment / no head tilt). Loads `tinyFaceDetector` + `faceLandmark68Net` from CDN. New `estimateYaw()` computes head-turn from nose vs face-center offset; >25° for 8s logs a `looking_away` violation with snapshot. Always captures baseline snapshot at start regardless of model load state, so admin gallery always populated. Mini preview pinned bottom-right during exam with live status pill.
 
