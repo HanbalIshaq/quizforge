@@ -2403,60 +2403,231 @@ def take_quiz(code):
         conn.close()
 
 
+# Allowlist of safe extensions for the form file_upload field. Notably
+# EXCLUDES: html, htm, svg (can carry JS → stored XSS), js, php, py, exe,
+# bat, cmd, sh, jar (executable), and anything with a double-extension trick.
+_ALLOWED_UPLOAD_EXTS = {
+    "pdf", "doc", "docx", "txt", "rtf", "odt",
+    "xls", "xlsx", "csv", "ods",
+    "ppt", "pptx", "odp",
+    "jpg", "jpeg", "png", "gif", "webp", "heic",
+    "zip",
+    "mp3", "wav", "m4a",
+    "mp4", "mov", "webm",
+}
+# Magic-byte signatures for the most security-critical types we serve back.
+# Validates that the actual file content matches the claimed extension —
+# stops attacks like uploading malicious HTML named "image.png".
+_MAGIC_BYTES: dict[str, tuple[bytes, ...]] = {
+    "jpg":  (b"\xff\xd8\xff",),
+    "jpeg": (b"\xff\xd8\xff",),
+    "png":  (b"\x89PNG\r\n\x1a\n",),
+    "gif":  (b"GIF87a", b"GIF89a"),
+    "pdf":  (b"%PDF-",),
+    "zip":  (b"PK\x03\x04", b"PK\x05\x06"),  # also covers docx/xlsx/pptx
+    "docx": (b"PK\x03\x04",),
+    "xlsx": (b"PK\x03\x04",),
+    "pptx": (b"PK\x03\x04",),
+    "webp": (b"RIFF",),
+    "mp3":  (b"ID3", b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"),
+    "mp4":  (b"\x00\x00\x00\x18ftyp", b"\x00\x00\x00\x20ftyp", b"\x00\x00\x00\x14ftyp",
+             b"\x00\x00\x00\x1cftyp"),
+}
+_MAX_UPLOAD_BYTES = 16 * 1024 * 1024  # 16 MB per file (matches MAX_CONTENT_LENGTH)
+_MAX_QUIZ_UPLOAD_BYTES = 256 * 1024 * 1024  # 256 MB total per quiz, to prevent disk fill
+
+
+def _safe_ext(filename: str) -> str:
+    """Return the lowercased last extension, or '' if there is none.
+    Strips double-extensions like 'evil.html.png' → returns 'png' (the last)
+    but the magic-byte check defends against tricks anyway."""
+    if "." not in filename:
+        return ""
+    return filename.rsplit(".", 1)[-1].lower().strip()
+
+
+def _quiz_upload_dir_size(quiz_id: int) -> int:
+    """Total bytes currently on disk for this quiz's uploads."""
+    folder = os.path.join("static", "uploads", f"quiz_{quiz_id}")
+    if not os.path.isdir(folder):
+        return 0
+    total = 0
+    for root, _dirs, files in os.walk(folder):
+        for fn in files:
+            try:
+                total += os.path.getsize(os.path.join(root, fn))
+            except OSError:
+                pass
+    return total
+
+
 @app.route("/q/<code>/upload", methods=["POST"])
 def quiz_file_upload(code):
-    """Receive a single file upload for a file_upload field. Returns the public URL."""
+    """Receive a single file upload for a file_upload field. Returns the public URL.
+
+    Hardened against:
+      - Stored XSS via HTML/SVG/JS file types (allowlist of safe extensions)
+      - Disguised payloads (magic-byte check on the bytes themselves)
+      - Disk fill (per-quiz 256MB cap, per-file 16MB cap)
+      - Uploads to unpublished or non-existent quizzes
+    """
     conn = db.get_conn()
     try:
-        quiz = conn.execute("SELECT id FROM quizzes WHERE share_code=?", (code,)).fetchone()
-        if not quiz:
-            return jsonify({"ok": False}), 404
+        quiz = conn.execute(
+            "SELECT id, is_published FROM quizzes WHERE share_code=?", (code,)
+        ).fetchone()
+        if not quiz or not quiz["is_published"]:
+            return jsonify({"ok": False, "error": "not found"}), 404
+        quiz_id = quiz["id"]
     finally:
         conn.close()
+
     f = request.files.get("file")
     if not f or not f.filename:
         return jsonify({"ok": False, "error": "No file"}), 400
-    # Sanitize filename
+
+    # 1) Extension allowlist
+    ext = _safe_ext(f.filename)
+    if ext not in _ALLOWED_UPLOAD_EXTS:
+        return jsonify({
+            "ok": False,
+            "error": f"File type .{ext or '(none)'} is not allowed.",
+        }), 400
+
+    # 2) Read first few bytes for magic-byte check, then rewind
+    head = f.stream.read(16)
+    f.stream.seek(0)
+    expected = _MAGIC_BYTES.get(ext)
+    if expected and not any(head.startswith(sig) for sig in expected):
+        return jsonify({
+            "ok": False,
+            "error": f"File content doesn't match its .{ext} extension.",
+        }), 400
+
+    # 3) Per-quiz disk quota check (before saving, so we don't write then delete)
+    used = _quiz_upload_dir_size(quiz_id)
+    if used >= _MAX_QUIZ_UPLOAD_BYTES:
+        return jsonify({
+            "ok": False,
+            "error": "Storage quota for this quiz has been reached. Contact the quiz owner.",
+        }), 413
+
+    # 4) Sanitize filename
     import re as _re
-    safe = _re.sub(r"[^A-Za-z0-9._-]", "_", f.filename)[:80]
-    # Per-quiz upload folder
-    folder = os.path.join("static", "uploads", f"quiz_{quiz['id']}")
+    safe = _re.sub(r"[^A-Za-z0-9._-]", "_", f.filename)[:80] or f"upload.{ext}"
+    folder = os.path.join("static", "uploads", f"quiz_{quiz_id}")
     os.makedirs(folder, exist_ok=True)
-    final = f"{db.now_ts()}_{safe}"
+    final = f"{db.now_ts()}_{secrets.token_hex(4)}_{safe}"
     path = os.path.join(folder, final)
     f.save(path)
-    url = url_for("static", filename=f"uploads/quiz_{quiz['id']}/{final}")
-    return jsonify({"ok": True, "url": url, "name": safe, "size": os.path.getsize(path)})
+
+    # 5) Enforce per-file size limit (Flask MAX_CONTENT_LENGTH is the outer
+    # guard, but a multipart request with multiple files can slip past).
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return jsonify({"ok": False, "error": "Save failed"}), 500
+    if size > _MAX_UPLOAD_BYTES:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return jsonify({"ok": False, "error": "File exceeds 16 MB limit."}), 413
+
+    url = url_for("static", filename=f"uploads/quiz_{quiz_id}/{final}")
+    return jsonify({"ok": True, "url": url, "name": safe, "size": size})
+
+
+# Allowed snapshot kinds — used to validate the kind field and decide whether
+# to also record a violation row. Restricted to known values so a caller can't
+# inject arbitrary strings into our violations log.
+_SNAPSHOT_KINDS = {"periodic", "no_face", "multiple_faces", "looking_away", "baseline"}
+_VIOLATION_SNAPSHOT_KINDS = {"no_face", "multiple_faces", "looking_away"}
+# Hard cap on snapshots per attempt — prevents a hijacked share_code from
+# filling Neon's free-tier 10GB storage by pumping in tens of thousands of
+# snapshots. A realistic 1-hour exam at one snapshot per 30s = 120; we cap
+# at 400 to leave a margin for violations + baseline + retakes.
+_MAX_SNAPSHOTS_PER_ATTEMPT = 400
+
+
+def _is_valid_jpeg_b64(b64: str) -> bool:
+    """True if the (possibly data-URI-prefixed) base64 string decodes to bytes
+    that start with the JPEG SOI marker (0xFF 0xD8 0xFF). Defends against
+    callers stuffing arbitrary bytes into the snapshot column that we'd later
+    serve back with Content-Type: image/jpeg."""
+    import base64 as _b64
+    if not b64:
+        return False
+    s = b64
+    if s.startswith("data:image"):
+        s = s.split(",", 1)[-1] if "," in s else ""
+    if not s:
+        return False
+    try:
+        # Decode just the first 16 bytes — saves CPU on the validation hot path.
+        head = _b64.b64decode(s[:32] + "===", validate=False)
+    except Exception:
+        return False
+    return head.startswith(b"\xff\xd8\xff")
 
 
 @app.route("/q/<code>/proctor", methods=["POST"])
 def quiz_save_snapshot(code):
     """Save a camera snapshot for a proctored exam attempt.
-    Body: { attempt_id, kind: 'periodic'|'no_face'|'multiple_faces'|'looking_away', notes, image_b64 }"""
+    Body: { attempt_id, kind: 'periodic'|'no_face'|'multiple_faces'|'looking_away'|'baseline',
+            notes, image_b64 }
+
+    Hardened against:
+      - Submitting arbitrary bytes disguised as JPEG (magic-byte check)
+      - Unknown 'kind' strings being injected into the violations table
+      - Storage flood (per-attempt cap)
+      - Snapshots posted after the attempt was submitted (already-finalized)
+    """
     payload = request.get_json(force=True, silent=True) or {}
     conn = db.get_conn()
     try:
         quiz = conn.execute("SELECT * FROM quizzes WHERE share_code=?", (code,)).fetchone()
-        if not quiz or not quiz["camera_proctor"]:
+        if not quiz or not quiz["camera_proctor"] or not quiz["is_published"]:
             return jsonify({"ok": False}), 404
-        attempt_id = int(payload.get("attempt_id") or 0)
+        try:
+            attempt_id = int(payload.get("attempt_id") or 0)
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "bad attempt_id"}), 400
+        # Only accept snapshots for IN-PROGRESS attempts on THIS quiz
         a = conn.execute(
-            "SELECT id FROM attempts WHERE id=? AND quiz_id=?", (attempt_id, quiz["id"])
+            "SELECT id FROM attempts WHERE id=? AND quiz_id=? AND submitted_at IS NULL",
+            (attempt_id, quiz["id"]),
         ).fetchone()
         if not a:
             return jsonify({"ok": False, "error": "attempt not found"}), 400
+
+        # Validate `kind` against the allowlist
         kind = (payload.get("kind") or "periodic")[:32]
+        if kind not in _SNAPSHOT_KINDS:
+            kind = "periodic"
         notes = (payload.get("notes") or "")[:200]
+
+        # Validate the image actually IS a JPEG, not arbitrary bytes
         image_b64 = payload.get("image_b64") or ""
-        # Cap stored image size to 80 KB (already low-res JPEG client-side)
+        if not _is_valid_jpeg_b64(image_b64):
+            return jsonify({"ok": False, "error": "image_b64 is not a valid JPEG"}), 400
+        # Cap stored payload size at ~80KB
         if len(image_b64) > 110000:
             image_b64 = image_b64[:110000]
+
+        # Enforce per-attempt snapshot cap — prevents storage flood
+        count = conn.execute(
+            "SELECT COUNT(*) AS c FROM proctor_snapshots WHERE attempt_id=?", (attempt_id,)
+        ).fetchone()["c"]
+        if count >= _MAX_SNAPSHOTS_PER_ATTEMPT:
+            return jsonify({"ok": False, "error": "snapshot limit reached"}), 429
+
         conn.execute(
             "INSERT INTO proctor_snapshots(attempt_id, captured_at, kind, notes, image_data) VALUES(?,?,?,?,?)",
             (attempt_id, db.now_ts(), kind, notes, image_b64),
         )
-        # If it's a violation kind, also record in the violations table for the integrity badge
-        if kind in ("no_face", "multiple_faces", "looking_away"):
+        # Also record in the violations table when the kind is a real violation
+        if kind in _VIOLATION_SNAPSHOT_KINDS:
             conn.execute(
                 "INSERT INTO violations(attempt_id, type, details, created_at) VALUES(?,?,?,?)",
                 (attempt_id, kind, notes, db.now_ts()),
@@ -2495,30 +2666,62 @@ def admin_snapshot_image(sid):
         conn.close()
 
 
+# Hard cap on violations per attempt (defends against a malicious client
+# spamming /violation to fill the table). 500 is far more than any legitimate
+# 90-min exam would ever record.
+_MAX_VIOLATIONS_PER_ATTEMPT = 500
+_VIOLATION_TYPES = {
+    "tab_switch", "window_blur", "paste", "copy", "rightclick", "fullscreen_exit",
+    "devtools", "no_face", "multiple_faces", "looking_away", "multi_tab",
+    "fullscreen_required", "other",
+}
+
+
 @app.route("/q/<code>/violation", methods=["POST"])
 def quiz_log_violation(code):
-    """Log an integrity violation (tab switch, paste attempt, etc) against the draft attempt."""
+    """Log an integrity violation (tab switch, paste attempt, etc) against the draft attempt.
+
+    Hardened against: arbitrary `type` strings filling the table, violations
+    submitted against already-finalized attempts, and floods (500-row cap).
+    """
     payload = request.get_json(force=True, silent=True) or {}
     conn = db.get_conn()
     try:
         quiz = conn.execute("SELECT * FROM quizzes WHERE share_code=?", (code,)).fetchone()
-        if not quiz:
+        if not quiz or not quiz["is_published"]:
             return jsonify({"ok": False}), 404
-        attempt_id = int(payload.get("attempt_id") or 0)
+        try:
+            attempt_id = int(payload.get("attempt_id") or 0)
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "bad attempt_id"}), 400
+        # Only accept violations for IN-PROGRESS attempts on THIS quiz.
         a = conn.execute(
-            "SELECT id FROM attempts WHERE id=? AND quiz_id=?", (attempt_id, quiz["id"])
+            "SELECT id FROM attempts WHERE id=? AND quiz_id=? AND submitted_at IS NULL",
+            (attempt_id, quiz["id"]),
         ).fetchone()
         if not a:
             return jsonify({"ok": False, "error": "attempt not found"}), 400
+
+        # Cap total violations per attempt to prevent table-flood DOS.
+        count = conn.execute(
+            "SELECT COUNT(*) AS c FROM violations WHERE attempt_id=?", (attempt_id,)
+        ).fetchone()["c"]
+        if count >= _MAX_VIOLATIONS_PER_ATTEMPT:
+            limit = quiz["violation_limit"] or 0
+            return jsonify({
+                "ok": True, "count": count, "limit": limit,
+                "auto_submit": bool(limit) and count >= limit,
+            })
+
         vtype = (payload.get("type") or "other")[:32]
+        if vtype not in _VIOLATION_TYPES:
+            vtype = "other"
         details = (payload.get("details") or "")[:500]
         conn.execute(
             "INSERT INTO violations(attempt_id, type, details, created_at) VALUES(?,?,?,?)",
             (attempt_id, vtype, details, db.now_ts()),
         )
-        count = conn.execute(
-            "SELECT COUNT(*) AS c FROM violations WHERE attempt_id=?", (attempt_id,)
-        ).fetchone()["c"]
+        count += 1
         conn.commit()
         # Decide whether to auto-submit
         limit = quiz["violation_limit"] or 0

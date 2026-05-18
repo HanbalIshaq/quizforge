@@ -345,6 +345,32 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-16 — Security audit + lockdowns on student-facing POST endpoints
+Real audit pass over `app.py`. Three student-facing endpoints had real holes that needed closing — none of them required authentication beyond knowing a share code, so any anonymous student could abuse them:
+
+**1. `/q/<code>/upload` — stored XSS + disk-fill risk.**
+The file_upload field accepted ANY extension, with no MIME/content validation. An attacker could upload `evil.html` or `evil.svg` (both can carry JavaScript) and the URL serves it from `/static/` → persistent XSS in the admin's browser when reviewing submissions. Also no per-quiz quota, so a bad actor could fill the disk. Fixes:
+- Extension allowlist (pdf/doc/img/audio/video — no html, svg, js, exe, etc).
+- Magic-byte check: the bytes themselves must start with the signature for the claimed extension (catches HTML-disguised-as-PNG attacks).
+- Per-quiz 256MB storage cap + per-file 16MB cap (the latter was the Flask `MAX_CONTENT_LENGTH` already, but only at the request-body level).
+- Reject uploads to unpublished quizzes.
+- Random hex prefix on saved filenames so URLs aren't enumerable.
+
+**2. `/q/<code>/proctor` — image-content forgery + storage flood.**
+Accepted any base64 string and stored it, then served it back with `Content-Type: image/jpeg`. An attacker could submit arbitrary bytes (could include a polyglot HTML/JPEG) and stuff fake "kinds" into the violations table to discredit students. No per-attempt cap meant a hijacked share code could flood Neon's free-tier 10GB storage. Fixes:
+- New `_is_valid_jpeg_b64()` decodes the first 16 bytes and verifies the JPEG SOI marker (0xFF 0xD8 0xFF) before storing.
+- `_SNAPSHOT_KINDS` allowlist: unknown kinds get normalized to `periodic` instead of being inserted as-is.
+- Per-attempt cap of 400 snapshots (`_MAX_SNAPSHOTS_PER_ATTEMPT`) returns 429 after that.
+- Reject snapshots posted against finalized (submitted) attempts.
+
+**3. `/q/<code>/violation` — type injection + flood.**
+Same pattern: accepted any `type` string into the violations table, no row cap, accepted violations against already-finalized attempts. Fixes:
+- `_VIOLATION_TYPES` allowlist (13 known types: tab_switch, paste, copy, devtools, etc). Unknown types get normalized to `other`.
+- Per-attempt cap of 500 (`_MAX_VIOLATIONS_PER_ATTEMPT`).
+- Reject violations against finalized attempts (with NULL `submitted_at` filter on the lookup).
+
+**Smoke test (`smoke_upload_proctor_security.py`)** — 18 checks: rejects .html / .svg / .exe / unknown extensions, rejects content-vs-extension mismatches, accepts legit JPEGs, rejects non-JPEG bytes on /proctor, normalizes unknown kinds without injecting violation rows, rejects all three endpoints when targeting finalized attempts or unpublished quizzes.
+
 ### 2026-05-16 — Distinct per-kind hub pages (Exam / Poll / Survey / Form / Live)
 User said all the service-type pages looked the same — `?kind=exam`, `?kind=poll`, etc. were just the same flat table with a different chip color, with no kind-relevant features or guidance. Built proper kind-specific hubs.
 
