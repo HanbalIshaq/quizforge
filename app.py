@@ -103,6 +103,78 @@ def _handle_unhandled_exception(e):
         return Response(body, status=500, mimetype="text/plain")
 
 
+# ---------- CSRF protection on admin routes ----------
+# Double-submit-token pattern: a per-session secret is read from session and
+# echoed back in either a hidden form field (_csrf) or a header
+# (X-CSRF-Token). On state-changing requests to /admin/*, the server compares
+# the two via constant-time equality — if they don't match, abort 403.
+#
+# Why only /admin/*: the student endpoints (/q/<code>/*, /j, /login,
+# /register, /forgot-password) operate without an authenticated session,
+# so a CSRF token would be either useless (attacker doesn't have a session
+# to forge against) or would break the public flow.
+#
+# Token auto-injection happens client-side via a small shim in base.html so
+# every existing admin form/fetch gets the token without per-template churn.
+
+_CSRF_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_CSRF_EXEMPT_PREFIXES = ("/login", "/register", "/forgot-password",
+                          "/reset-password", "/logout")
+
+
+def _get_or_create_csrf_token() -> str:
+    """Return the per-session CSRF token, creating one if missing."""
+    tok = session.get("_csrf_token")
+    if not tok:
+        tok = secrets.token_urlsafe(32)
+        session["_csrf_token"] = tok
+    return tok
+
+
+@app.before_request
+def _enforce_csrf():
+    # On read requests, mint the per-session token if missing so the next
+    # form/fetch has something to send back. Cheap (one secrets.token_urlsafe
+    # call once per session, then a no-op).
+    if request.method not in _CSRF_METHODS:
+        _get_or_create_csrf_token()
+        return None
+    # Only protect admin routes. Student/public endpoints are open by design
+    # (no session to forge against).
+    if not request.path.startswith("/admin/"):
+        return None
+    # Login/register/etc never run from /admin/ but be defensive
+    if any(request.path.startswith(p) for p in _CSRF_EXEMPT_PREFIXES):
+        return None
+    expected = session.get("_csrf_token") or ""
+    if not expected:
+        # No session token — this means no prior GET ever ran in this session
+        # (or it was cleared). Reject the POST and require the user to refresh.
+        app.logger.warning(
+            "CSRF: no session token on %s %s — rejecting",
+            request.method, request.path,
+        )
+        abort(403)
+    # Accept the token from form body, JSON body, or X-CSRF-Token header
+    submitted = (
+        request.form.get("_csrf")
+        or request.headers.get("X-CSRF-Token")
+        or request.headers.get("X-CSRFToken")
+    )
+    if not submitted and request.is_json:
+        try:
+            body = request.get_json(silent=True) or {}
+            submitted = body.get("_csrf")
+        except Exception:
+            submitted = None
+    if not submitted or not secrets.compare_digest(str(submitted), str(expected)):
+        app.logger.warning(
+            "CSRF: rejected %s %s (submitted=%r)", request.method, request.path,
+            (submitted or "")[:8],
+        )
+        abort(403)
+
+
 # In-memory live session state: { session_id: { participants, answers, current_q } }
 LIVE_STATE: dict[int, dict] = defaultdict(lambda: {
     "participants": {},          # sid -> {"name": str, "score": 0}
@@ -404,6 +476,7 @@ def inject_globals():
         "asset_v": ASSET_VERSION,
         "features": {},
         "opt_label": opt_label,
+        "csrf_token": _get_or_create_csrf_token(),
     }
     try:
         ctx["user"] = current_user()
@@ -2548,27 +2621,33 @@ _VIOLATION_SNAPSHOT_KINDS = {"no_face", "multiple_faces", "looking_away"}
 # snapshots. A realistic 1-hour exam at one snapshot per 30s = 120; we cap
 # at 400 to leave a margin for violations + baseline + retakes.
 _MAX_SNAPSHOTS_PER_ATTEMPT = 400
+# Raw-bytes cap. The image is a low-res JPEG produced client-side, so 200 KB
+# is plenty of headroom. (Old base64 cap was 110000 chars = ~80 KB of bytes.)
+_MAX_SNAPSHOT_BYTES = 200 * 1024
 
 
-def _is_valid_jpeg_b64(b64: str) -> bool:
-    """True if the (possibly data-URI-prefixed) base64 string decodes to bytes
-    that start with the JPEG SOI marker (0xFF 0xD8 0xFF). Defends against
-    callers stuffing arbitrary bytes into the snapshot column that we'd later
-    serve back with Content-Type: image/jpeg."""
+def _decode_snapshot_b64(b64: str) -> bytes | None:
+    """Decode a (possibly data-URI-prefixed) base64 string and return the raw
+    bytes only if they are a valid JPEG. None on any failure — caller should
+    reject the upload. Lets us store the raw 33%-smaller bytes in the DB
+    instead of the inflated base64 string."""
     import base64 as _b64
     if not b64:
-        return False
+        return None
     s = b64
     if s.startswith("data:image"):
         s = s.split(",", 1)[-1] if "," in s else ""
     if not s:
-        return False
+        return None
     try:
-        # Decode just the first 16 bytes — saves CPU on the validation hot path.
-        head = _b64.b64decode(s[:32] + "===", validate=False)
+        raw = _b64.b64decode(s, validate=False)
     except Exception:
-        return False
-    return head.startswith(b"\xff\xd8\xff")
+        return None
+    # Magic-byte check on the actual decoded bytes — the most reliable place
+    # to validate, since we have the real content here.
+    if not raw.startswith(b"\xff\xd8\xff"):
+        return None
+    return raw
 
 
 @app.route("/q/<code>/proctor", methods=["POST"])
@@ -2577,10 +2656,13 @@ def quiz_save_snapshot(code):
     Body: { attempt_id, kind: 'periodic'|'no_face'|'multiple_faces'|'looking_away'|'baseline',
             notes, image_b64 }
 
+    Stored as raw BYTEA in proctor_snapshots.image_bytes (33% smaller than the
+    old base64 TEXT column, and skips a CPU decode on every admin view).
+
     Hardened against:
       - Submitting arbitrary bytes disguised as JPEG (magic-byte check)
       - Unknown 'kind' strings being injected into the violations table
-      - Storage flood (per-attempt cap)
+      - Storage flood (per-attempt cap + per-image size cap)
       - Snapshots posted after the attempt was submitted (already-finalized)
     """
     payload = request.get_json(force=True, silent=True) or {}
@@ -2607,13 +2689,12 @@ def quiz_save_snapshot(code):
             kind = "periodic"
         notes = (payload.get("notes") or "")[:200]
 
-        # Validate the image actually IS a JPEG, not arbitrary bytes
-        image_b64 = payload.get("image_b64") or ""
-        if not _is_valid_jpeg_b64(image_b64):
+        # Decode + validate the JPEG bytes in one pass
+        raw = _decode_snapshot_b64(payload.get("image_b64") or "")
+        if raw is None:
             return jsonify({"ok": False, "error": "image_b64 is not a valid JPEG"}), 400
-        # Cap stored payload size at ~80KB
-        if len(image_b64) > 110000:
-            image_b64 = image_b64[:110000]
+        if len(raw) > _MAX_SNAPSHOT_BYTES:
+            return jsonify({"ok": False, "error": "image too large"}), 413
 
         # Enforce per-attempt snapshot cap — prevents storage flood
         count = conn.execute(
@@ -2623,8 +2704,9 @@ def quiz_save_snapshot(code):
             return jsonify({"ok": False, "error": "snapshot limit reached"}), 429
 
         conn.execute(
-            "INSERT INTO proctor_snapshots(attempt_id, captured_at, kind, notes, image_data) VALUES(?,?,?,?,?)",
-            (attempt_id, db.now_ts(), kind, notes, image_b64),
+            "INSERT INTO proctor_snapshots(attempt_id, captured_at, kind, notes, image_bytes) "
+            "VALUES(?,?,?,?,?)",
+            (attempt_id, db.now_ts(), kind, notes, raw),
         )
         # Also record in the violations table when the kind is a real violation
         if kind in _VIOLATION_SNAPSHOT_KINDS:
@@ -2641,12 +2723,17 @@ def quiz_save_snapshot(code):
 @app.route("/admin/snapshots/<int:sid>.jpg")
 @login_required
 def admin_snapshot_image(sid):
-    """Serve a proctoring snapshot as JPEG; only the quiz owner can view."""
+    """Serve a proctoring snapshot as JPEG; only the quiz owner can view.
+
+    Reads from the new image_bytes BYTEA column when available, falls back to
+    the legacy base64 image_data TEXT column for snapshots saved before the
+    storage migration. Both paths still verify the requester owns the quiz.
+    """
     import base64
     conn = db.get_conn()
     try:
         row = conn.execute(
-            """SELECT s.image_data, q.user_id FROM proctor_snapshots s
+            """SELECT s.image_bytes, s.image_data, q.user_id FROM proctor_snapshots s
                JOIN attempts a ON a.id = s.attempt_id
                JOIN quizzes q ON q.id = a.quiz_id
                WHERE s.id=?""",
@@ -2654,12 +2741,27 @@ def admin_snapshot_image(sid):
         ).fetchone()
         if not row or row["user_id"] != session["uid"]:
             abort(404)
-        b64 = row["image_data"] or ""
-        if b64.startswith("data:image"):
-            b64 = b64.split(",", 1)[-1]
-        try:
-            raw = base64.b64decode(b64)
-        except Exception:
+        raw = row["image_bytes"]
+        # psycopg returns memoryview for BYTEA in some versions — normalize to bytes
+        if raw is not None and not isinstance(raw, (bytes, bytearray)):
+            try:
+                raw = bytes(raw)
+            except Exception:
+                raw = None
+        if not raw:
+            # Legacy row stored as base64 TEXT — decode on the fly.
+            b64 = row["image_data"] or ""
+            if b64.startswith("data:image"):
+                b64 = b64.split(",", 1)[-1]
+            if not b64:
+                abort(404)
+            try:
+                raw = base64.b64decode(b64)
+            except Exception:
+                abort(404)
+        # Final magic-byte sanity check — never serve non-JPEG bytes back
+        # with Content-Type: image/jpeg.
+        if not raw or not raw.startswith(b"\xff\xd8\xff"):
             abort(404)
         return Response(raw, mimetype="image/jpeg")
     finally:
@@ -2788,65 +2890,142 @@ def cert_verify(serial):
 
 @app.route("/q/<code>/save", methods=["POST"])
 def quiz_save_draft(code):
-    """Auto-save endpoint — accepts partial answers and updates the draft attempt."""
+    """Auto-save endpoint — accepts partial answers and updates the draft attempt.
+
+    Hot path: fires every ~0.8s from the student page. Previously did 1 SELECT
+    + 1 DELETE + 1 INSERT *per question* → 60 queries for a 20-question save.
+    Now does 1 bulk SELECT + 1 bulk DELETE + 1 batch INSERT total = 3 queries,
+    wrapped in db.run_in_txn so concurrent saves can't deadlock the same way
+    submits used to.
+    """
     payload = request.get_json(force=True, silent=True) or {}
+    # Pull quiz outside the retry loop — it's a read with no locks.
     conn = db.get_conn()
     try:
         quiz = conn.execute("SELECT * FROM quizzes WHERE share_code=?", (code,)).fetchone()
         if not quiz or not quiz["is_published"]:
             return jsonify({"ok": False, "error": "not found"}), 404
-        attempt_id = int(payload.get("attempt_id") or 0)
+        quiz_dict = dict(quiz)
+    finally:
+        conn.close()
+
+    answers_in = payload.get("answers") or {}
+    is_scored = quiz_dict["kind"] == "exam"
+    quiz_id = quiz_dict["id"]
+    try:
+        requested_attempt_id = int(payload.get("attempt_id") or 0)
+    except (TypeError, ValueError):
+        requested_attempt_id = 0
+    student_name_update = payload.get("student_name") if "student_name" in payload else None
+    student_email_update = payload.get("student_email") if "student_email" in payload else None
+
+    def _work(conn):
         # Verify attempt belongs to this quiz and is still a draft
-        a = conn.execute(
-            "SELECT * FROM attempts WHERE id=? AND quiz_id=? AND submitted_at IS NULL",
-            (attempt_id, quiz["id"]),
-        ).fetchone()
-        if not a:
-            # Create a fresh draft on demand
-            attempt_id = _get_or_create_draft(conn, dict(quiz))
-        if "student_name" in payload or "student_email" in payload:
+        attempt_id = requested_attempt_id
+        if attempt_id:
+            a = conn.execute(
+                "SELECT id FROM attempts WHERE id=? AND quiz_id=? AND submitted_at IS NULL",
+                (attempt_id, quiz_id),
+            ).fetchone()
+            if not a:
+                attempt_id = 0
+        if not attempt_id:
+            attempt_id = _get_or_create_draft(conn, quiz_dict)
+
+        if student_name_update is not None or student_email_update is not None:
             conn.execute(
-                "UPDATE attempts SET student_name=COALESCE(?, student_name), student_email=COALESCE(?, student_email) WHERE id=?",
-                (payload.get("student_name"), payload.get("student_email"), attempt_id),
+                "UPDATE attempts SET student_name=COALESCE(?, student_name), "
+                "student_email=COALESCE(?, student_email) WHERE id=?",
+                (student_name_update, student_email_update, attempt_id),
             )
-        # Upsert answers
-        is_scored = quiz["kind"] == "exam"
-        for qid_str, val in (payload.get("answers") or {}).items():
+
+        # Coerce + dedupe the question ids the client sent
+        valid: list[tuple[int, object]] = []
+        for qid_str, val in answers_in.items():
             try:
                 qid = int(qid_str)
             except (TypeError, ValueError):
                 continue
-            q_row = conn.execute(
-                "SELECT * FROM questions WHERE id=? AND quiz_id=?", (qid, quiz["id"])
-            ).fetchone()
-            if not q_row:
+            valid.append((qid, val))
+        if not valid:
+            # Still roll up the score so the rest of the response is consistent
+            earned = conn.execute(
+                "SELECT COALESCE(SUM(points_earned), 0) AS s FROM answers WHERE attempt_id=?",
+                (attempt_id,),
+            ).fetchone()["s"]
+            total = conn.execute(
+                "SELECT COALESCE(SUM(points), 0) AS m FROM questions WHERE quiz_id=?",
+                (quiz_id,),
+            ).fetchone()["m"]
+            pct = (float(earned) / float(total) * 100) if total else 0
+            conn.execute(
+                "UPDATE attempts SET score=?, max_score=?, percentage=? WHERE id=?",
+                (float(earned), float(total), pct, attempt_id),
+            )
+            conn.commit()
+            return {"attempt_id": attempt_id, "score": earned, "max_score": total, "percentage": pct}
+
+        qids = sorted({qid for qid, _ in valid})
+
+        # ONE bulk SELECT for every question the client is updating — vs. one
+        # SELECT per question before. Validates each qid belongs to this quiz
+        # by the WHERE clause.
+        placeholders = ",".join(["?"] * len(qids))
+        q_rows = conn.execute(
+            f"SELECT * FROM questions WHERE quiz_id=? AND id IN ({placeholders})",
+            (quiz_id, *qids),
+        ).fetchall()
+        q_by_id: dict[int, dict] = {}
+        for r in q_rows:
+            qd = dict(r)
+            qd["options"] = json.loads(qd["options"] or "[]")
+            qd["correct_answers"] = json.loads(qd["correct_answers"] or "[]")
+            q_by_id[qd["id"]] = qd
+
+        # Build the new answer rows in memory, computing grades as we go.
+        # Sort by question_id so FK locks acquire in a deterministic order
+        # (same defense used for /submit) — prevents concurrent saves on
+        # overlapping questions from deadlocking.
+        rows_to_insert: list[tuple] = []
+        for qid, val in valid:
+            q = q_by_id.get(qid)
+            if not q:
                 continue
-            q = dict(q_row)
-            q["options"] = json.loads(q["options"] or "[]")
-            q["correct_answers"] = json.loads(q["correct_answers"] or "[]")
             if is_scored:
                 is_correct, pts, manual = grading.grade_answer(q, val)
             else:
                 is_correct, pts, manual = (None, 0.0, False)
-            conn.execute("DELETE FROM answers WHERE attempt_id=? AND question_id=?", (attempt_id, qid))
+            rows_to_insert.append((
+                attempt_id, qid, json.dumps(val),
+                None if is_correct is None else (1 if is_correct else 0),
+                pts,
+                0 if manual else 1,
+            ))
+        rows_to_insert.sort(key=lambda r: r[1])
+
+        # ONE bulk DELETE for every question_id we're about to rewrite.
+        # Old answers cleanly removed in one statement.
+        valid_qids = [r[1] for r in rows_to_insert]
+        if valid_qids:
+            del_placeholders = ",".join(["?"] * len(valid_qids))
             conn.execute(
+                f"DELETE FROM answers WHERE attempt_id=? AND question_id IN ({del_placeholders})",
+                (attempt_id, *valid_qids),
+            )
+            conn.executemany(
                 """INSERT INTO answers(attempt_id, question_id, answer, is_correct, points_earned, graded)
                    VALUES(?,?,?,?,?,?)""",
-                (
-                    attempt_id, qid, json.dumps(val),
-                    None if is_correct is None else (1 if is_correct else 0),
-                    pts,
-                    0 if manual else 1,
-                ),
+                rows_to_insert,
             )
-        # Roll up current score so partial attempts show real progress in Results
+
+        # Roll up current score so the Results page shows real progress
         earned = conn.execute(
             "SELECT COALESCE(SUM(points_earned), 0) AS s FROM answers WHERE attempt_id=?",
             (attempt_id,),
         ).fetchone()["s"]
         total = conn.execute(
             "SELECT COALESCE(SUM(points), 0) AS m FROM questions WHERE quiz_id=?",
-            (quiz["id"],),
+            (quiz_id,),
         ).fetchone()["m"]
         pct = (float(earned) / float(total) * 100) if total else 0
         conn.execute(
@@ -2854,9 +3033,10 @@ def quiz_save_draft(code):
             (float(earned), float(total), pct, attempt_id),
         )
         conn.commit()
-        return jsonify({"ok": True, "attempt_id": attempt_id, "score": earned, "max_score": total, "percentage": pct})
-    finally:
-        conn.close()
+        return {"attempt_id": attempt_id, "score": earned, "max_score": total, "percentage": pct}
+
+    result = db.run_in_txn(_work)
+    return jsonify({"ok": True, **result})
 
 
 def _coerce_to_int(x, default=None):

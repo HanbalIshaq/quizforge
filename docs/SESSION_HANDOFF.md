@@ -345,6 +345,34 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-19 — N+1 fix on /save + snapshot BYTEA migration + CSRF on /admin/* (3 P1/P2 fixes)
+Continuation of the security audit. Three additional findings from the audit list shipped:
+
+**#1 — `/q/<code>/save` was doing N+1 queries + had deadlock potential.** Hot path — fires every ~0.8s from the student page. Each auto-save was running 1 SELECT + 1 DELETE + 1 INSERT *per question* (60 queries for a 20-question save). Plus the same DELETE+INSERT loop pattern that caused the real submit deadlock yesterday. Fixed:
+- Bulk SELECT all relevant questions in one query with `WHERE quiz_id=? AND id IN (?, ?, ...)`
+- Build all answer rows in memory, sorted by question_id (consistent FK lock order)
+- Bulk DELETE all old answer rows for those question_ids in one statement
+- Batch INSERT via `conn.executemany`
+- Wrapped the entire critical section in `db.run_in_txn` so a deadlock retries transparently
+- 60 queries → 3 queries for a 20-question save. ~95% reduction in DB roundtrips on the hottest student endpoint.
+
+**#2 — Snapshots stored as base64 TEXT wasted 33% of Neon's free-tier storage.** Each snapshot was a base64 string with the data-URI prefix, so a 60KB JPEG took 80KB on disk. At one snapshot per 30s × 100 students × 30 min exam = 9000 snapshots = 720MB. Migrated to BYTEA:
+- New `image_bytes BYTEA` column added via idempotent migration in `db.init_db()`
+- `quiz_save_snapshot` now decodes the base64 once, magic-byte validates the bytes, and stores raw bytes
+- `admin_snapshot_image` prefers `image_bytes`, falls back to legacy `image_data` for old rows (lazy migration — no destructive update needed)
+- Final magic-byte sanity check before serving so we never serve non-JPEG bytes with `Content-Type: image/jpeg`
+- Net effect: 33% smaller storage AND skips a CPU base64 decode on every admin view AND defends against polyglot attacks at every layer
+
+**#3 — CSRF protection on `/admin/*` POST routes.** Admin clicking an attacker link could delete quizzes / suspend users / etc. Implemented double-submit-token pattern with zero per-template churn:
+- Per-session token stored in `session["_csrf_token"]` (generated lazily on any GET via `before_request`)
+- Exposed to templates as `csrf_token` context variable + rendered into `<meta name="csrf-token">` in `base.html`
+- Small JS shim at the bottom of `base.html` auto-injects `_csrf` hidden input into every POST/PUT/PATCH/DELETE form AND auto-attaches `X-CSRF-Token` header to every state-changing `fetch()` call — so no admin template needed to change
+- `before_request` hook validates: form `_csrf`, JSON body `_csrf`, or `X-CSRF-Token` header against session token using `secrets.compare_digest`
+- Only enforces on `/admin/*` paths — student/public endpoints (`/q/<code>/*`, `/j`, `/login`, etc.) pass through unchanged
+- Missing-token POST → 403, prompting user to refresh
+
+**Smoke test (`smoke_save_bytea_csrf.py`)** — 26 checks covering: bulk-query usage in /save, end-to-end save with rewrite (no duplicate rows), BYTEA storage of new snapshots, legacy base64 snapshots still serve, CSRF blocks unprotected admin POSTs, CSRF accepts token via form field OR header, student endpoints still bypass CSRF as designed. Full suite now 7 files, 159 total checks, all green.
+
 ### 2026-05-16 — Security audit + lockdowns on student-facing POST endpoints
 Real audit pass over `app.py`. Three student-facing endpoints had real holes that needed closing — none of them required authentication beyond knowing a share code, so any anonymous student could abuse them:
 

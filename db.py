@@ -429,6 +429,11 @@ def init_db() -> None:
             )"""
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_proctor_attempt ON proctor_snapshots(attempt_id)")
+        # Migrate snapshot storage from base64 TEXT to raw BYTEA. The TEXT
+        # column wastes ~33% on base64 inflation AND requires a CPU decode
+        # on every read. New snapshots write to image_bytes; reads prefer
+        # image_bytes and fall back to image_data for legacy rows.
+        _ensure_column(conn, "proctor_snapshots", "image_bytes", "BYTEA")
         # Question bank — reusable questions per teacher
         conn.execute(
             """CREATE TABLE IF NOT EXISTS question_bank (

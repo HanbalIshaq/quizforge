@@ -10,6 +10,7 @@
   <meta name="author" content="QuizForge" />
   <meta name="robots" content="index, follow" />
   <link rel="canonical" href="{{ request.url }}" />
+  <meta name="csrf-token" content="{{ csrf_token }}" />
 
   {# Open Graph / Twitter #}
   <meta property="og:type" content="website" />
@@ -143,5 +144,46 @@
     </div>
   </footer>
   {% block scripts %}{% endblock %}
+
+  {# ─── CSRF auto-injection ───
+     Adds the per-session token to every POST form and every fetch() call
+     so admin-page templates don't have to add hidden inputs manually.
+     The server only validates the token on /admin/* routes; public student
+     pages run with no auth and pass through unchanged. #}
+  <script>
+  (function() {
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    var token = meta ? meta.content : '';
+    if (!token) return;
+    // Auto-attach to every POST/PUT/PATCH/DELETE form (capture phase so we
+    // run before the form's own submit handler).
+    document.addEventListener('submit', function(e) {
+      var form = e.target;
+      if (!form || !form.method) return;
+      var m = form.method.toUpperCase();
+      if (m !== 'POST' && m !== 'PUT' && m !== 'PATCH' && m !== 'DELETE') return;
+      if (form.querySelector('input[name="_csrf"]')) return;
+      var input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = '_csrf';
+      input.value = token;
+      form.appendChild(input);
+    }, true);
+    // Auto-attach to every fetch() with a state-changing method.
+    if (window.fetch) {
+      var origFetch = window.fetch;
+      window.fetch = function(input, init) {
+        init = init || {};
+        var method = (init.method || (typeof input === 'object' && input.method) || 'GET').toUpperCase();
+        if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
+          var headers = new Headers(init.headers || (typeof input === 'object' && input.headers) || {});
+          if (!headers.has('X-CSRF-Token')) headers.set('X-CSRF-Token', token);
+          init.headers = headers;
+        }
+        return origFetch.call(this, input, init);
+      };
+    }
+  })();
+  </script>
 </body>
 </html>
