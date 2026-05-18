@@ -1,19 +1,19 @@
 <div class="bg-white border border-slate-200 rounded-lg p-4 question-card" data-qid="{{ q.id }}">
-  <div class="flex items-start justify-between gap-3">
-    <div class="flex-1">
+  <div class="flex flex-col sm:flex-row sm:items-start gap-3">
+    <div class="flex-1 min-w-0">
       <div class="text-xs text-slate-500 mb-1">
         Q{{ idx }} &middot; <span class="capitalize">{{ q.type.replace('_', ' ') }}</span> &middot; {{ q.points }} pt{% if q.points != 1 %}s{% endif %}
-        {% if q.time_limit_seconds %} &middot; <span class="text-amber-700">⏱ {{ q.time_limit_seconds }}s</span>{% endif %}
+        {% if q.time_limit_seconds %} &middot; <span class="text-amber-700"><span aria-hidden="true">⏱</span> {{ q.time_limit_seconds }}s</span>{% endif %}
       </div>
-      <div class="font-medium">{{ q.text }}</div>
+      <div class="font-medium break-words">{{ q.text }}</div>
       {% if q.options %}
         <ul class="mt-2 text-sm text-slate-700 space-y-0.5">
           {% for opt in q.options %}
             <li class="flex items-start gap-2">
-              <span class="inline-block w-5 text-slate-400">{{ "ABCDEFGH"[loop.index0] }}.</span>
-              <span>{{ opt }}</span>
+              <span class="inline-block w-5 text-slate-500 shrink-0">{{ "ABCDEFGH"[loop.index0] }}.</span>
+              <span class="break-words min-w-0">{{ opt }}</span>
               {% if loop.index0 in (q.correct_answers|int_list) %}
-                <span class="text-emerald-600 text-xs">&check; correct</span>
+                <span class="text-emerald-600 text-xs shrink-0">&check; correct</span>
               {% endif %}
             </li>
           {% endfor %}
@@ -24,12 +24,15 @@
         </div>
       {% endif %}
       {% if q.explanation %}
-        <div class="mt-2 text-xs text-slate-500 italic">{{ q.explanation }}</div>
+        <div class="mt-2 text-xs text-slate-500 italic break-words">{{ q.explanation }}</div>
       {% endif %}
     </div>
-    <div class="flex flex-col gap-1">
-      <button class="edit-q-btn text-xs px-2 py-1 bg-slate-100 rounded hover:bg-slate-200">Edit</button>
-      <button class="delete-q-btn text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100">Delete</button>
+    {# Action buttons: row on mobile (right-aligned), column on desktop #}
+    <div class="flex sm:flex-col gap-2 sm:gap-1 shrink-0 self-stretch sm:self-start justify-end">
+      <button type="button" class="edit-q-btn flex-1 sm:flex-none text-xs px-3 py-1.5 bg-slate-100 rounded hover:bg-slate-200"
+              aria-label="Edit question {{ idx }}">Edit</button>
+      <button type="button" class="delete-q-btn flex-1 sm:flex-none text-xs px-3 py-1.5 bg-red-50 text-red-700 rounded hover:bg-red-100"
+              aria-label="Delete question {{ idx }}">Delete</button>
     </div>
   </div>
 </div>

@@ -1,22 +1,30 @@
 {% extends "base.html" %}
 {% block title %}{{ quiz.title }} &middot; Edit{% endblock %}
 {% block content %}
-<div class="flex items-start justify-between mb-4">
-  <div>
+<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
+  <div class="min-w-0">
     <a href="{{ url_for('admin_dashboard') }}" class="text-sm text-slate-500 hover:text-brand-700">&larr; Dashboard</a>
-    <h1 class="text-2xl font-bold mt-1">{{ quiz.title }}</h1>
-    <p class="text-sm text-slate-500">
-      Share code:
-      <span class="font-mono bg-slate-100 px-2 py-0.5 rounded">{{ quiz.share_code }}</span>
-      &middot;
-      Public link:
-      <a class="text-brand-700 hover:underline" href="{{ url_for('take_quiz', code=quiz.share_code, _external=True) }}">
-        {{ url_for('take_quiz', code=quiz.share_code, _external=True) }}
-      </a>
-    </p>
+    <h1 class="text-2xl font-bold mt-1 break-words">{{ quiz.title }}</h1>
+    <div class="text-sm text-slate-500 mt-1 space-y-1">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span>Share code:</span>
+        <span class="font-mono bg-slate-100 px-2 py-0.5 rounded">{{ quiz.share_code }}</span>
+        <button type="button" class="qf-copy-btn text-xs px-2 py-0.5 bg-brand-50 text-brand-700 rounded hover:bg-brand-100"
+                data-copy="{{ url_for('take_quiz', code=quiz.share_code, _external=True) }}"
+                aria-label="Copy public quiz link">
+          Copy link
+        </button>
+      </div>
+      <p class="text-xs break-all">
+        <a class="text-brand-700 hover:underline" href="{{ url_for('take_quiz', code=quiz.share_code, _external=True) }}">
+          {{ url_for('take_quiz', code=quiz.share_code, _external=True) }}
+        </a>
+      </p>
+    </div>
   </div>
-  <div class="flex gap-2">
-    <a href="{{ url_for('quiz_results', quiz_id=quiz.id) }}" class="px-3 py-2 bg-white border border-slate-300 rounded text-sm hover:bg-slate-100">Results</a>
+  <div class="flex flex-wrap gap-2 shrink-0">
+    <a href="{{ url_for('quiz_results', quiz_id=quiz.id) }}"
+       class="px-3 py-2 bg-white border border-slate-300 rounded text-sm hover:bg-slate-100">Results</a>
     <form method="post" action="{{ url_for('live_start', quiz_id=quiz.id) }}">
       <button class="px-3 py-2 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">Start Live Session</button>
     </form>
@@ -239,12 +247,13 @@
 
   <!-- Questions -->
   <section class="lg:col-span-2 space-y-3">
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between gap-2">
       <h2 class="font-semibold">
         {% if quiz.kind == 'form' %}Form fields{% else %}Questions{% endif %} ({{ questions|length }})
       </h2>
-      <button id="add-q-btn" class="px-3 py-2 bg-brand-600 text-white rounded text-sm hover:bg-brand-700">
-        + Add {% if quiz.kind == 'form' %}field{% else %}question{% endif %}</button>
+      <button id="add-q-btn" class="px-3 py-2 bg-brand-600 text-white rounded text-sm hover:bg-brand-700 shrink-0">
+        + Add {% if quiz.kind == 'form' %}field{% else %}question{% endif %}
+      </button>
     </div>
     <div id="questions-list" class="space-y-3">
       {% for q in questions %}
@@ -256,6 +265,36 @@
     </div>
   </section>
 </div>
+
+{# Floating "Add question" button — appears on mobile after scrolling past
+   the top of the questions list, so adding more questions doesn't require
+   scrolling back to the top button. Pinned bottom-right, big tap target. #}
+<button id="add-q-fab" type="button"
+        class="fixed bottom-5 right-5 z-40 hidden sm:hidden inline-flex items-center justify-center gap-2 px-4 h-12 rounded-full bg-brand-600 text-white shadow-lg hover:bg-brand-700 active:scale-95 transition"
+        aria-label="Add {% if quiz.kind == 'form' %}field{% else %}question{% endif %}">
+  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
+  </svg>
+  <span class="text-sm font-medium">Add</span>
+</button>
+<script>
+  (function() {
+    var fab = document.getElementById('add-q-fab');
+    var topBtn = document.getElementById('add-q-btn');
+    if (!fab || !topBtn) return;
+    // Clicking the FAB triggers the same handler as the top button
+    fab.addEventListener('click', function() { topBtn.click(); });
+    // Reveal the FAB on mobile only when scrolled enough that the top button
+    // is out of view. IntersectionObserver is the cheap, no-jank way to do this.
+    var io = new IntersectionObserver(function(entries) {
+      var visible = entries[0].isIntersecting;
+      // Use sm: breakpoint (640px) — only show on phones, hide on desktop
+      var isMobile = window.matchMedia('(max-width: 640px)').matches;
+      fab.classList.toggle('hidden', visible || !isMobile);
+    }, { threshold: 0 });
+    io.observe(topBtn);
+  })();
+</script>
 
 <details class="mt-10 text-sm bg-white border border-slate-200 rounded p-4">
   <summary class="font-semibold cursor-pointer">Import format examples</summary>

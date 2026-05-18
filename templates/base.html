@@ -11,6 +11,12 @@
   <meta name="robots" content="index, follow" />
   <link rel="canonical" href="{{ request.url }}" />
   <meta name="csrf-token" content="{{ csrf_token }}" />
+  {# Color browser chrome on mobile to match the brand background. Subtle
+     but noticeably more polished on phones (Android pulls down the URL bar
+     in this color, iOS Safari tints the status bar). #}
+  <meta name="theme-color" content="#f8fafc" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 
   {# Open Graph / Twitter #}
   <meta property="og:type" content="website" />
@@ -193,6 +199,41 @@
     </div>
   </footer>
   {% block scripts %}{% endblock %}
+
+  {# ─── Global "Copy to clipboard" helper ───
+     Any button with [data-copy="value"] becomes a one-click copy. The button
+     briefly flips to a "Copied!" state via the .qf-copy-btn[data-copy-state]
+     CSS rule. Removes the need to handwrite this JS in every template that
+     wants a share-link copy. #}
+  <script>
+  (function() {
+    document.addEventListener('click', function(e) {
+      var btn = e.target.closest('[data-copy]');
+      if (!btn) return;
+      var text = btn.getAttribute('data-copy');
+      if (!text) return;
+      var done = function() {
+        var oldLabel = btn.textContent;
+        btn.setAttribute('data-copy-state', 'done');
+        btn.textContent = 'Copied!';
+        setTimeout(function() {
+          btn.removeAttribute('data-copy-state');
+          btn.textContent = oldLabel;
+        }, 1500);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(function() {
+          // fallback for non-secure contexts
+          var ta = document.createElement('textarea');
+          ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); done(); } catch (_) {}
+          document.body.removeChild(ta);
+        });
+      }
+    });
+  })();
+  </script>
 
   {# ─── Table scroll-shadow indicator ───
      Adds .qf-scrollable to any .qf-table-wrap whose content overflows

@@ -345,6 +345,41 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-19 — Round-2 detailed UI/UX audit + 10 concrete fixes
+After the mobile-first pass landed, the user reported it was "still not friendly". Did a deeper template-by-template audit, found 10 distinct categories of issues, fixed all of them.
+
+**1. Action bars overflowed on mobile** (`quiz_form.html`, `quiz_results.html`):
+Three buttons (Results / Start Live / Delete) on the right of an `flex justify-between` header — fit on desktop, ran off the screen on mobile. Now `flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between`. Title gets `break-words` so long quiz names don't overflow.
+
+**2. Long share-link URLs overflowed** (`quiz_form.html`, `student/results.html`):
+Public quiz URL and cert-verify URL were displayed inline on one line — overflowed any phone screen. Wrapped both in `<p class="break-all">`. Plus added a one-click **Copy link** button next to the share code on the quiz editor (the user can now share the URL without selecting it manually).
+
+**3. Question card edit/delete buttons cramped** (`_question_card.html`):
+The card had a fixed `flex flex-col` for actions on the right — on mobile it squeezed the question text. Now `flex flex-col sm:flex-row` on the wrapper, action buttons row on mobile and column on desktop. Both buttons get explicit `aria-label="Edit question N"` so screen readers announce something meaningful.
+
+**4. Join page mobile keyboard issues** (`student/join.html`):
+The share-code input was uppercase + tracking-widest but had no `autocapitalize`/`autocorrect`/`spellcheck` hints — mobile keyboards were autocapitalizing the first letter and offering autocorrect. Added `autocapitalize="characters"`, `autocorrect="off"`, `spellcheck="false"`, `maxlength="12"`, an `sr-only` label, and an `aria-describedby` hint.
+
+**5. Toggle switches invisible to keyboard users** (`site_features.html`):
+The toggle uses `class="sr-only peer"` to hide the checkbox visually — but keyboard Tab landed nowhere visible. Added `peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500` on the visible track + an `aria-label` on each input so the focus is announced and visible.
+
+**6. Snapshot grid blocked page render** (`attempt_detail.html`):
+An attempt with 100+ snapshots was loading every image up-front. Added `loading="lazy"` + `decoding="async"` + `alt` text + `aspect-square object-cover` (prevents layout shift while images load). External link gets `rel="noopener"`. Anchor gets descriptive `aria-label`.
+
+**7. Sticky header hid anchor targets globally** (CSS):
+Clicking `/admin/quizzes/22/attempts/168#snapshots` scrolled the snapshots gallery under the sticky 64px header. Added `[id] { scroll-margin-top: 80px; }` globally — every anchor target gets header-aware scroll position.
+
+**8. Mobile browser chrome bland** (`base.html`):
+Added `<meta name="theme-color" content="#f8fafc">` so Android Chrome tints the URL bar to match the app background. Plus `apple-mobile-web-app-capable` for iOS Add-to-Home-Screen flow.
+
+**9. Global Copy-link helper** (`base.html` + `custom.css`):
+Centralized clipboard-copy: any element with `[data-copy="..."]` becomes a one-click copy button with success-state styling via `.qf-copy-btn[data-copy-state="done"]`. Used by the new share-link button — and any future template can opt in for free.
+
+**10. Add-question FAB for long quiz editors** (`quiz_form.html`):
+Editing a 30-question quiz on mobile means scrolling past every card just to add another. Added a floating "+ Add" button bottom-right that appears only on mobile (`max-width: 640px`) and only when the top "Add" button is out of view (IntersectionObserver). Clicking it triggers the existing top-button click handler — zero new logic.
+
+**Smoke test (`smoke_ui_round2.py`)** — 38 checks covering every fix above: action bar stacking, URL break-all, question card mobile layout + aria, join page mobile keyboard + a11y, toggle focus-visible + aria-label, snapshot lazy-load + alt + aspect-square, theme-color meta + apple meta, scroll-margin global, FAB markup + IntersectionObserver wiring, plus live-render of 5 admin pages to verify nothing crashed. **Full suite now 10 modern smoke tests, 255 checks, all green.**
+
 ### 2026-05-19 — Mobile-first UI/UX + accessibility pass (the P3 audit item)
 User reported "not so much friendly, not very mobile friendly" — addressed across the global shell + CSS + key pages. This is the #8 P3 finding from the audit list.
 

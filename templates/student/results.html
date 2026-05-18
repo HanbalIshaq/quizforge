@@ -32,11 +32,19 @@
 
   {% if cert_serial %}
     <div class="bg-white border border-emerald-200 rounded-lg p-5 mb-6 text-center">
-      <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center text-2xl mx-auto mb-2">🏆</div>
+      <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center text-2xl mx-auto mb-2" aria-hidden="true">🏆</div>
       <p class="font-semibold">Your certificate is ready</p>
-      <p class="text-xs text-slate-500 mt-1">Serial <span class="font-mono">{{ cert_serial }}</span> · verify at <a class="text-brand-700 hover:underline" href="{{ url_for('cert_verify', serial=cert_serial, _external=True) }}">{{ url_for('cert_verify', serial=cert_serial, _external=True) }}</a></p>
+      <p class="text-xs text-slate-500 mt-1">
+        Serial <span class="font-mono">{{ cert_serial }}</span>
+      </p>
+      <p class="text-xs text-slate-500 mt-1 break-all">
+        Verify at
+        <a class="text-brand-700 hover:underline" href="{{ url_for('cert_verify', serial=cert_serial, _external=True) }}">{{ url_for('cert_verify', serial=cert_serial, _external=True) }}</a>
+      </p>
       <a href="{{ url_for('cert_download', serial=cert_serial) }}"
-         class="mt-3 inline-block px-4 py-2 bg-brand-600 text-white rounded hover:bg-brand-700 text-sm">⬇ Download PDF certificate</a>
+         class="mt-3 inline-block px-4 py-2 bg-brand-600 text-white rounded hover:bg-brand-700 text-sm">
+        <span aria-hidden="true">⬇</span> Download PDF certificate
+      </a>
     </div>
   {% endif %}
 
