@@ -145,7 +145,8 @@
 
 {# ───── Quiz list ───── #}
 {% if quizzes %}
-  <div class="bg-white border border-slate-200 rounded-lg overflow-hidden">
+  <div class="bg-white border border-slate-200 rounded-lg">
+   <div class="qf-table-wrap rounded-lg">
     <table class="w-full text-sm">
       <thead class="bg-slate-50 text-slate-600 text-left">
         <tr>
@@ -193,6 +194,7 @@
         {% endfor %}
       </tbody>
     </table>
+   </div>
   </div>
 {% else %}
   <div class="bg-white border border-slate-200 rounded-lg p-12 text-center text-slate-500">

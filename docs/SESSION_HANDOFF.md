@@ -345,6 +345,38 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-19 — Mobile-first UI/UX + accessibility pass (the P3 audit item)
+User reported "not so much friendly, not very mobile friendly" — addressed across the global shell + CSS + key pages. This is the #8 P3 finding from the audit list.
+
+**Mobile navigation overhaul (`base.html`):**
+- Skip-to-main-content link (sr-only, focusable) — keyboard/screen-reader users can bypass the nav.
+- New hamburger button (md:hidden) with `aria-controls` + `aria-expanded` + label that flips between "Open menu" / "Close menu".
+- New mobile drawer (`#qf-mobile-nav`) with every link from desktop + a separate "Signed in as …" indicator + a Sign out row. Every link is `min-h-[44px]` for proper tap targets.
+- Hamburger JS toggles drawer + flips icon, closes on link-click or Escape key.
+- Desktop bar now has `aria-label="Primary"` on `<nav>`; brand "Q" badge `aria-hidden`.
+- Flash messages region now `role="status" aria-live="polite"` so SR users get them announced.
+- Container padding becomes responsive: `px-4 sm:px-6` + `py-4 sm:py-6` (was `px-4 py-6`).
+
+**Global CSS (`static/css/custom.css`) gained:**
+- `:focus-visible` outline rules on every interactive element — keyboard users can SEE where they are (previously inputs had a ring but buttons / links did not).
+- `.sr-only` utility class (the skip link uses it).
+- Mobile touch-target rules: every button + Tailwind-styled anchor button + form input is at least 44×44px on small screens. Inputs are 16px font (prevents iOS Safari from auto-zooming on focus — the #1 mobile-quiz papercut).
+- `.qf-table-wrap` — wraps wide admin tables in a horizontal-scroll container WITH a right-edge fade-shadow that signals "more content over there". Toggled by a tiny JS that compares scrollWidth vs clientWidth on load + resize.
+- `.line-clamp-2` explicit definition (the CDN Tailwind config doesn't guarantee it).
+- `prefers-reduced-motion` query disables all our animations for users who request it.
+
+**Auth forms (`login.html`, `register.html`):**
+- Real `<label for=>` ↔ input associations.
+- Proper `autocomplete` attrs: `email` / `current-password` / `new-password` / `name` — saves users from re-typing.
+- `inputmode="email"` + `autocapitalize="off"` + `spellcheck="false"` on email fields so mobile keyboards pull up the right layout and don't autocorrect dots out.
+- "Forgot?" link moved next to the password label (the natural place users look for it).
+- Bigger padding (`py-2.5`), rounded-lg, sm:p-7 — feels less cramped.
+- `aria-describedby` on the password field linking to the "at least 6 chars" hint.
+
+**Admin tables made mobile-scrollable** — 5 templates updated: `quiz_results.html`, `dashboard.html`, `site_users.html`, `site_dashboard.html` (3 tables), `live_list.html`. Each `<table class="w-full text-sm">` wrapped in `<div class="qf-table-wrap">`. The 📷 column header in `quiz_results` got `aria-label="Proctoring snapshots"` so SR users hear "Proctoring snapshots" instead of "camera emoji".
+
+**Smoke test (`smoke_ui_a11y.py`)** — 36 checks covering: skip link + main landmark + ARIA on hamburger / drawer / brand badge, custom.css has focus-visible + sr-only + 44px touch targets + 16px input font + qf-table-wrap + line-clamp + prefers-reduced-motion, login/register have autocomplete + inputmode + explicit labels + aria-describedby, all 5 admin tables wrapped, live render of quiz_results page contains the wrap class. Full suite now 9 files, **217 total checks, all green**.
+
 ### 2026-05-19 — AI cost protection + certificate PDF cache (2 P2 audit fixes)
 Continuing the audit pipeline. Two more findings shipped:
 

@@ -50,39 +50,88 @@
   </script>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+  {# Skip-to-content link — visually hidden until keyboard-focused.
+     Critical for screen reader / keyboard users so they can bypass nav. #}
+  <a href="#main-content"
+     class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-2 focus:bg-brand-700 focus:text-white focus:rounded">
+    Skip to main content
+  </a>
+
   <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
-    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-6">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3 sm:gap-6">
       <a href="{{ url_for('home') }}" class="font-bold text-lg text-brand-700 flex items-center gap-2 shrink-0">
-        <span class="inline-block w-7 h-7 rounded bg-brand-600 text-white grid place-items-center text-sm">Q</span>
-        QuizForge
+        <span class="inline-block w-7 h-7 rounded bg-brand-600 text-white grid place-items-center text-sm" aria-hidden="true">Q</span>
+        <span>QuizForge</span>
       </a>
-      <nav class="hidden md:flex items-center gap-5 text-sm text-slate-700">
+
+      {# Desktop primary nav #}
+      <nav class="hidden md:flex items-center gap-5 text-sm text-slate-700" aria-label="Primary">
         <a href="{{ url_for('features_page') }}" class="hover:text-brand-700">Features</a>
         <a href="{{ url_for('use_cases_page') }}" class="hover:text-brand-700">Use cases</a>
         <a href="{{ url_for('pricing_page') }}" class="hover:text-brand-700">Pricing</a>
         <a href="{{ url_for('join') }}" class="hover:text-brand-700">Take a quiz</a>
       </nav>
-      <div class="flex items-center gap-3 text-sm">
+
+      {# Desktop right side (account/auth) #}
+      <div class="hidden md:flex items-center gap-3 text-sm">
         {% if user %}
           <a href="{{ url_for('admin_dashboard') }}" class="hover:text-brand-700">Dashboard</a>
           <a href="{{ url_for('bank_list') }}" class="hover:text-brand-700">Question Bank</a>
-          <span class="text-slate-400 hidden md:inline">|</span>
-          <span class="text-slate-600 hidden md:inline">{{ user.name or user.email }}</span>
+          <span class="text-slate-400" aria-hidden="true">|</span>
+          <span class="text-slate-600 max-w-[10rem] truncate" title="{{ user.email }}">{{ user.name or user.email }}</span>
           <a href="{{ url_for('logout') }}" class="text-slate-500 hover:text-red-600">Sign out</a>
         {% else %}
           <a href="{{ url_for('login') }}" class="hover:text-brand-700">Sign in</a>
           {% if features.feature_registration %}
-            <a href="{{ url_for('register') }}" class="px-3 py-1.5 bg-brand-600 text-white rounded hover:bg-brand-700">Get started — free</a>
+            <a href="{{ url_for('register') }}" class="px-3 py-1.5 bg-brand-600 text-white rounded hover:bg-brand-700 inline-flex items-center min-h-[36px]">Get started — free</a>
           {% endif %}
         {% endif %}
       </div>
+
+      {# Mobile hamburger button — toggles the drawer below #}
+      <button type="button" id="qf-nav-toggle"
+              class="md:hidden -mr-2 inline-flex items-center justify-center w-11 h-11 rounded-lg text-slate-700 hover:bg-slate-100 active:bg-slate-200"
+              aria-controls="qf-mobile-nav" aria-expanded="false" aria-label="Open menu">
+        <svg id="qf-nav-icon-open" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+        <svg id="qf-nav-icon-close" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
     </div>
+
+    {# Mobile drawer — collapses below the header bar on small screens.
+       All same links as desktop, plus auth state. min-h-[44px] on every
+       link for proper tap targets. #}
+    <nav id="qf-mobile-nav" class="md:hidden hidden border-t border-slate-200 bg-white" aria-label="Mobile">
+      <div class="max-w-6xl mx-auto px-4 py-2 flex flex-col">
+        <a href="{{ url_for('features_page') }}"  class="min-h-[44px] flex items-center text-slate-700 hover:bg-slate-50 px-2 rounded">Features</a>
+        <a href="{{ url_for('use_cases_page') }}" class="min-h-[44px] flex items-center text-slate-700 hover:bg-slate-50 px-2 rounded">Use cases</a>
+        <a href="{{ url_for('pricing_page') }}"   class="min-h-[44px] flex items-center text-slate-700 hover:bg-slate-50 px-2 rounded">Pricing</a>
+        <a href="{{ url_for('join') }}"           class="min-h-[44px] flex items-center text-slate-700 hover:bg-slate-50 px-2 rounded">Take a quiz</a>
+        <div class="my-1 border-t border-slate-200"></div>
+        {% if user %}
+          <div class="px-2 py-2 text-xs text-slate-500 truncate" title="{{ user.email }}">
+            Signed in as <span class="text-slate-700 font-medium">{{ user.name or user.email }}</span>
+          </div>
+          <a href="{{ url_for('admin_dashboard') }}" class="min-h-[44px] flex items-center text-slate-700 hover:bg-slate-50 px-2 rounded">Dashboard</a>
+          <a href="{{ url_for('bank_list') }}"       class="min-h-[44px] flex items-center text-slate-700 hover:bg-slate-50 px-2 rounded">Question Bank</a>
+          <a href="{{ url_for('logout') }}"          class="min-h-[44px] flex items-center text-red-600 hover:bg-red-50 px-2 rounded">Sign out</a>
+        {% else %}
+          <a href="{{ url_for('login') }}" class="min-h-[44px] flex items-center text-slate-700 hover:bg-slate-50 px-2 rounded">Sign in</a>
+          {% if features.feature_registration %}
+            <a href="{{ url_for('register') }}" class="min-h-[44px] flex items-center justify-center px-3 my-2 bg-brand-600 text-white rounded hover:bg-brand-700">Get started — free</a>
+          {% endif %}
+        {% endif %}
+      </div>
+    </nav>
   </header>
 
-  <main class="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
+  <main id="main-content" class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-4 sm:py-6">
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
-        <div class="mb-4 space-y-2">
+        <div class="mb-4 space-y-2" role="status" aria-live="polite">
           {% for cat, msg in messages %}
             <div class="px-4 py-2 rounded border text-sm
               {% if cat == 'error' %}bg-red-50 border-red-200 text-red-800
@@ -144,6 +193,52 @@
     </div>
   </footer>
   {% block scripts %}{% endblock %}
+
+  {# ─── Table scroll-shadow indicator ───
+     Adds .qf-scrollable to any .qf-table-wrap whose content overflows
+     horizontally, which triggers the right-edge fade gradient in custom.css.
+     Tells the user there's more table to scroll to. #}
+  <script>
+  (function() {
+    function refresh() {
+      document.querySelectorAll('.qf-table-wrap').forEach(function(el) {
+        el.classList.toggle('qf-scrollable', el.scrollWidth > el.clientWidth + 4);
+      });
+    }
+    if (document.readyState !== 'loading') refresh();
+    else document.addEventListener('DOMContentLoaded', refresh);
+    window.addEventListener('resize', refresh);
+  })();
+  </script>
+
+  {# ─── Mobile hamburger menu toggle ─── #}
+  <script>
+  (function() {
+    var btn = document.getElementById('qf-nav-toggle');
+    var drawer = document.getElementById('qf-mobile-nav');
+    var iconOpen = document.getElementById('qf-nav-icon-open');
+    var iconClose = document.getElementById('qf-nav-icon-close');
+    if (!btn || !drawer) return;
+    function setOpen(open) {
+      drawer.classList.toggle('hidden', !open);
+      iconOpen.classList.toggle('hidden', open);
+      iconClose.classList.toggle('hidden', !open);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      btn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+    }
+    btn.addEventListener('click', function() {
+      setOpen(drawer.classList.contains('hidden'));
+    });
+    // Close drawer when a link is clicked (mobile single-page nav feel)
+    drawer.addEventListener('click', function(e) {
+      if (e.target.tagName === 'A') setOpen(false);
+    });
+    // Close on Escape
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && !drawer.classList.contains('hidden')) setOpen(false);
+    });
+  })();
+  </script>
 
   {# ─── CSRF auto-injection ───
      Adds the per-session token to every POST form and every fetch() call

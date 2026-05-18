@@ -1,5 +1,124 @@
 /* QuizForge custom styles on top of Tailwind */
+
+/* ═══════════════════════════════════════════════════════════════════
+   ACCESSIBILITY — focus styles + screen-reader helpers
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Remove default browser focus outline ONLY on mouse-clicked elements.
+   :focus-visible keeps a clear ring for keyboard / screen-reader users —
+   the right balance between visual polish and a11y. */
 input:focus, textarea:focus, select:focus { outline: none; }
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+summary:focus-visible {
+  outline: 2px solid #4f46e5;   /* brand-600 */
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Screen-reader-only helper used by the skip-to-content link */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.focus\:not-sr-only:focus {
+  position: absolute;
+  width: auto;
+  height: auto;
+  padding: 0.5rem 0.75rem;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   MOBILE TOUCH TARGETS
+   Apple HIG 44pt / Material 48dp. We standardize on 44px minimum for
+   interactive elements on small screens.
+   ═══════════════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+  button:not(.qf-no-touch-target),
+  .qf-btn,
+  input[type="submit"],
+  input[type="button"],
+  a.qf-btn,
+  /* Tailwind-styled anchor "buttons" — heuristic: anchors that have a
+     bg-* class are visually styled as buttons. The selector targets the
+     most common patterns we use across templates. */
+  a[class*="bg-brand"],
+  a[class*="bg-emerald"],
+  a[class*="bg-amber"],
+  a[class*="bg-purple"],
+  a[class*="bg-rose"],
+  a[class*="bg-red"],
+  a[class*="bg-slate"][class*="px-"] {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* Make sure form inputs are tall enough for fat fingers */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="search"],
+  input[type="date"],
+  input[type="time"],
+  select,
+  textarea {
+    font-size: 16px;     /* prevents iOS Safari from zooming on focus */
+    min-height: 44px;
+  }
+  textarea { min-height: 88px; }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   RESPONSIVE TABLE WRAPPER
+   Old admin tables overflow on mobile with no indication. .qf-table-wrap
+   wraps them in a horizontal-scroll container WITH a fade-shadow on the
+   right edge so users see there's more content. Use with:
+     <div class="qf-table-wrap"> <table>...</table> </div>
+   ═══════════════════════════════════════════════════════════════════ */
+.qf-table-wrap {
+  position: relative;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.qf-table-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 24px;
+  pointer-events: none;
+  background: linear-gradient(to left, rgba(15, 23, 42, 0.08), transparent);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.qf-table-wrap.qf-scrollable::after { opacity: 1; }
+.qf-table-wrap table { min-width: 640px; }
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   ANIMATIONS / EXISTING UTILITIES
+   ═══════════════════════════════════════════════════════════════════ */
 .btn-loading { opacity: 0.6; pointer-events: none; }
 .fade-in { animation: fadeIn 0.25s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: none;} }
@@ -30,4 +149,30 @@ input:focus, textarea:focus, select:focus { outline: none; }
   padding: 4px 10px;
   border-radius: 4px;
   margin-top: 8px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   line-clamp helpers (Tailwind v3+ has these but our CDN config doesn't
+   guarantee them — define explicitly so card titles truncate nicely)
+   ═══════════════════════════════════════════════════════════════════ */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   prefers-reduced-motion — disable our animations for users who
+   request reduced motion (a11y / WCAG 2.3.3)
+   ═══════════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
