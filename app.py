@@ -364,11 +364,40 @@ def features_all() -> dict:
 # ===== PLANS & USAGE LIMITS =====
 # Each plan: label + monthly response cap + max quizzes + allowed features
 PLANS = {
-    "free":     {"tier": "free",     "label": "Free",     "attempts_month": 50,   "max_quizzes": 3,    "allow_ai": False, "allow_white_label": False, "allow_certificates": True,  "price": "$0"},
-    "pro":      {"tier": "pro",      "label": "Pro",      "attempts_month": 2000, "max_quizzes": 50,   "allow_ai": True,  "allow_white_label": False, "allow_certificates": True,  "price": "$19/mo"},
-    "business": {"tier": "business", "label": "Business", "attempts_month": 10000,"max_quizzes": 200,  "allow_ai": True,  "allow_white_label": True,  "allow_certificates": True,  "price": "$49/mo"},
-    "enterprise": {"tier": "enterprise","label": "Enterprise","attempts_month": 0, "max_quizzes": 0,  "allow_ai": True,  "allow_white_label": True,  "allow_certificates": True,  "price": "Custom"},
+    "free":     {"tier": "free",     "label": "Free",     "attempts_month": 50,   "max_quizzes": 3,    "allow_ai": False, "ai_per_day": 0,  "allow_white_label": False, "allow_certificates": True,  "price": "$0"},
+    "pro":      {"tier": "pro",      "label": "Pro",      "attempts_month": 2000, "max_quizzes": 50,   "allow_ai": True,  "ai_per_day": 10, "allow_white_label": False, "allow_certificates": True,  "price": "$19/mo"},
+    "business": {"tier": "business", "label": "Business", "attempts_month": 10000,"max_quizzes": 200,  "allow_ai": True,  "ai_per_day": 50, "allow_white_label": True,  "allow_certificates": True,  "price": "$49/mo"},
+    "enterprise": {"tier": "enterprise","label": "Enterprise","attempts_month": 0, "max_quizzes": 0,  "allow_ai": True,  "ai_per_day": 0,  "allow_white_label": True,  "allow_certificates": True,  "price": "Custom"},
 }
+# ai_per_day: 0 = no limit (Enterprise) OR not allowed (Free — gated by allow_ai)
+
+
+def ai_generations_today(user_id: int) -> int:
+    """Count AI generation calls this user has made in the last 24h.
+    Cheap thanks to the (user_id, created_at) index on ai_generations."""
+    cutoff = db.now_ts() - 86400
+    conn = db.get_conn()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) AS c FROM ai_generations WHERE user_id=? AND created_at >= ?",
+            (user_id, cutoff),
+        ).fetchone()
+        return row["c"] if row else 0
+    finally:
+        conn.close()
+
+
+def log_ai_generation(user_id: int, quiz_id: int, n_questions: int) -> None:
+    """Record one AI generation event for quota tracking + audit."""
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO ai_generations(user_id, quiz_id, n_questions, created_at) VALUES(?,?,?,?)",
+            (user_id, quiz_id, n_questions, db.now_ts()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def user_plan(user_id: int) -> dict:
@@ -1328,23 +1357,60 @@ def quiz_add_from_bank(quiz_id):
     return redirect(url_for("quiz_edit", quiz_id=quiz_id))
 
 
+# Hard cap on questions per single AI generation call. The plan-level
+# daily quota controls *frequency*; this controls *blast radius* — a single
+# malicious request can't be n=10000.
+_AI_MAX_N_PER_CALL = 50
+
+
 @app.route("/admin/quizzes/<int:quiz_id>/ai-generate", methods=["POST"])
 @login_required
 def quiz_ai_generate(quiz_id):
-    """Generate questions with AI and append them to the quiz."""
+    """Generate questions with AI and append them to the quiz.
+
+    Cost protection layers:
+      1) Site-level feature flag (admin can disable globally)
+      2) Plan-level allow_ai gate
+      3) Plan-level daily quota via ai_generations_today()
+      4) Per-call n cap (_AI_MAX_N_PER_CALL = 50)
+      5) Audit log row in ai_generations on success
+    """
     if not feature_enabled("feature_ai_quiz_gen"):
         flash("AI quiz generation is disabled by the site administrator.", "error")
         return redirect(url_for("quiz_edit", quiz_id=quiz_id))
     plan = user_plan(session["uid"])
     if not plan.get("allow_ai"):
-        flash(f"AI quiz generation is not included in the {plan['label']} plan. Upgrade to Pro to unlock.", "error")
+        flash(
+            f"AI quiz generation is not included in the {plan['label']} plan. Upgrade to Pro to unlock.",
+            "error",
+        )
         return redirect(url_for("quiz_edit", quiz_id=quiz_id))
+
+    # Daily quota check. ai_per_day == 0 means "unlimited" (Enterprise) ONLY
+    # because allow_ai is true; Free has ai_per_day=0 too but allow_ai=False
+    # gates it above.
+    daily_limit = int(plan.get("ai_per_day") or 0)
+    if daily_limit > 0:
+        used = ai_generations_today(session["uid"])
+        if used >= daily_limit:
+            flash(
+                f"Daily AI generation limit reached ({used} / {daily_limit} on the "
+                f"{plan['label']} plan). Resets in 24 hours, or upgrade to Business for more.",
+                "error",
+            )
+            return redirect(url_for("quiz_edit", quiz_id=quiz_id))
+
     material = (request.form.get("material") or "").strip()
-    n = int(request.form.get("n") or 10)
+    try:
+        n = int(request.form.get("n") or 10)
+    except (TypeError, ValueError):
+        n = 10
+    n = max(1, min(_AI_MAX_N_PER_CALL, n))  # clamp to [1, 50]
     qtype = (request.form.get("qtype") or "mcq_single").strip()
     if not material:
         flash("Please paste some source material for the AI to use.", "error")
         return redirect(url_for("quiz_edit", quiz_id=quiz_id))
+
     conn = db.get_conn()
     try:
         owned_quiz_or_404(conn, quiz_id, session["uid"])
@@ -1372,9 +1438,17 @@ def quiz_ai_generate(quiz_id):
             )
         conn.execute("UPDATE quizzes SET updated_at=? WHERE id=?", (db.now_ts(), quiz_id))
         conn.commit()
-        flash(f"AI generated and added {len(questions)} question(s).", "success")
     finally:
         conn.close()
+
+    # Log the successful generation OUTSIDE the main connection so the audit
+    # row is committed independently of the question inserts.
+    log_ai_generation(session["uid"], quiz_id, len(questions))
+    remaining = ""
+    if daily_limit > 0:
+        used_after = ai_generations_today(session["uid"])
+        remaining = f" ({daily_limit - used_after} of {daily_limit} remaining today)"
+    flash(f"AI generated and added {len(questions)} question(s).{remaining}", "success")
     return redirect(url_for("quiz_edit", quiz_id=quiz_id))
 
 
@@ -2835,7 +2909,15 @@ def quiz_log_violation(code):
 
 @app.route("/cert/<serial>.pdf")
 def cert_download(serial):
-    """Download the certificate PDF for a given serial. Public — anyone with the serial can download."""
+    """Download the certificate PDF for a given serial. Public — anyone with
+    the serial can download.
+
+    Lazy-cached: first download renders the PDF with reportlab (~150-300ms,
+    CPU-bound) and stores the bytes in certificates.pdf_bytes. Subsequent
+    downloads serve directly from the column (<5ms). Saves both CPU and
+    file-system churn on Render's small instance, and lets the same cert
+    URL be hit thousands of times (HR validators, LinkedIn) without bill.
+    """
     conn = db.get_conn()
     try:
         row = conn.execute(
@@ -2846,17 +2928,42 @@ def cert_download(serial):
         ).fetchone()
         if not row:
             abort(404)
-        verify_url = url_for("cert_verify", serial=serial, _external=True)
-        pdf = certificates.render_certificate_pdf(
-            recipient_name=row["recipient_name"] or "Recipient",
-            quiz_title=row["quiz_title"],
-            score=float(row["score"] or 0),
-            max_score=float(row["max_score"] or 0),
-            percentage=float(row["percentage"] or 0),
-            serial=row["serial"],
-            issued_at_str=datetime.fromtimestamp(int(row["issued_at"])).strftime("%d %b %Y"),
-            verify_url=verify_url,
-        )
+
+        # Serve from cache when available (BYTEA column).
+        cached = row["pdf_bytes"] if "pdf_bytes" in row.keys() else None
+        if cached is not None and not isinstance(cached, (bytes, bytearray)):
+            # psycopg sometimes returns memoryview for BYTEA — normalize.
+            try:
+                cached = bytes(cached)
+            except Exception:
+                cached = None
+
+        if cached:
+            pdf = cached
+        else:
+            # Cold path: render once with reportlab, then persist for next time.
+            verify_url = url_for("cert_verify", serial=serial, _external=True)
+            pdf = certificates.render_certificate_pdf(
+                recipient_name=row["recipient_name"] or "Recipient",
+                quiz_title=row["quiz_title"],
+                score=float(row["score"] or 0),
+                max_score=float(row["max_score"] or 0),
+                percentage=float(row["percentage"] or 0),
+                serial=row["serial"],
+                issued_at_str=datetime.fromtimestamp(int(row["issued_at"])).strftime("%d %b %Y"),
+                verify_url=verify_url,
+            )
+            try:
+                conn.execute(
+                    "UPDATE certificates SET pdf_bytes=? WHERE id=?",
+                    (pdf, row["id"]),
+                )
+                conn.commit()
+            except Exception as e:
+                # Cache write failure is non-fatal — we still serve the PDF we
+                # just rendered. Log so we can spot widespread cache misses.
+                app.logger.warning("cert_download: cache write failed for %s: %s", serial, e)
+
         safe = row["recipient_name"] or "certificate"
         safe = "".join(c if c.isalnum() else "_" for c in safe)[:40]
         return Response(

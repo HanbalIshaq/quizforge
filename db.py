@@ -483,6 +483,23 @@ def init_db() -> None:
                 value TEXT
             )"""
         )
+        # Audit log for AI generations so we can enforce per-user daily quotas
+        # (LLM calls cost real money — without a cap a Pro user with curiosity
+        # or a compromised account can rack up bills fast).
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS ai_generations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                quiz_id INTEGER,
+                n_questions INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL
+            )"""
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_gen_user_time ON ai_generations(user_id, created_at)")
+        # Cache rendered certificate PDFs so we don't burn CPU re-running
+        # reportlab on every download. Lazy-populated: first download fills
+        # pdf_bytes, subsequent downloads serve from this column.
+        _ensure_column(conn, "certificates", "pdf_bytes", "BYTEA")
         conn.commit()
     finally:
         conn.close()

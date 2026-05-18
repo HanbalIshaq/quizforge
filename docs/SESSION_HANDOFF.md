@@ -345,6 +345,24 @@ Claude will know everything: tech stack, file locations, conventions, what's alr
 
 ## SESSION LOG (newest first)
 
+### 2026-05-19 — AI cost protection + certificate PDF cache (2 P2 audit fixes)
+Continuing the audit pipeline. Two more findings shipped:
+
+**#5 — Daily per-user AI generation quota.** Pro tier had `allow_ai: true` but no rate limit — a curious user (or compromised account) could hit the AI endpoint hundreds of times in a row and rack up real LLM bills. Added:
+- New `ai_per_day` field on every plan: Free=0 (gated by allow_ai), Pro=10, Business=50, Enterprise=0 (unlimited).
+- New `ai_generations` table + index on `(user_id, created_at)` for fast last-24h counts.
+- New `ai_generations_today(uid)` and `log_ai_generation(uid, quiz_id, n)` helpers.
+- `quiz_ai_generate` route now: (a) checks `allow_ai` gate, (b) counts generations in the last 24h, (c) rejects with a clear flash message if at limit, (d) clamps `n` to `_AI_MAX_N_PER_CALL = 50` to bound per-call blast radius, (e) logs an audit row only on successful generation, (f) flashes "(7 of 10 remaining today)" so the user knows where they stand.
+- Five layers of cost protection now: site flag → plan gate → daily quota → per-call cap → audit log.
+
+**#6 — Lazy-cached certificate PDFs.** Every `/cert/<serial>.pdf` request was re-rendering the PDF with reportlab (~150-300ms, CPU-heavy). A verifier checking a candidate's LinkedIn cert URL could hit the same render thousands of times. Fixed:
+- New `pdf_bytes BYTEA` column on `certificates` via idempotent migration.
+- First download: render with reportlab, store the bytes, serve.
+- Subsequent downloads: serve directly from the column (<5ms instead of 150ms+).
+- Cache-write failure is non-fatal (logged, request still succeeds with the just-rendered PDF). Lazy populate, so existing certs migrate transparently as they're downloaded.
+
+**Smoke test (`smoke_ai_quota_cert_cache.py`)** — 22 checks covering: migration adds both `ai_generations` and `certificates.pdf_bytes`, PLANS metadata, quota counter is per-user, Free user blocked at allow_ai, Pro user can use 10 then 11th rejected without logging, n=9999 clamped to 50, first PDF download populates cache, second download served from cache (verified by monkey-patching the renderer to raise — if it gets called, test fails). Full suite now 8 files, **181 total checks, all green**.
+
 ### 2026-05-19 — N+1 fix on /save + snapshot BYTEA migration + CSRF on /admin/* (3 P1/P2 fixes)
 Continuation of the security audit. Three additional findings from the audit list shipped:
 
