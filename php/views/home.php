@@ -1,4 +1,4 @@
-<?php /** Landing page. */ $feat = features_all(); ?>
+<?php /** Landing page. */ $feat = features_all(); $me = current_user(); ?>
 <section class="text-center py-10 sm:py-16">
   <p class="inline-block text-xs uppercase tracking-wider bg-brand-50 text-brand-700 px-3 py-1 rounded-full mb-4">All-in-one assessment platform</p>
   <h1 class="text-3xl sm:text-5xl font-bold text-slate-900 mb-5 leading-tight">
@@ -10,10 +10,15 @@
     AI quiz generation — self-hostable on ordinary PHP + MySQL shared hosting.
   </p>
   <div class="flex flex-wrap justify-center gap-3">
-    <?php if ($feat['feature_registration']): ?>
-      <a href="<?= e(url('/register')) ?>" class="qf-btn qf-btn-primary qf-btn-lg">Start free — no credit card</a>
+    <?php if ($me): ?>
+      <a href="<?= e(url('/admin')) ?>" class="qf-btn qf-btn-primary qf-btn-lg">Go to your dashboard →</a>
+      <a href="<?= e(url('/join')) ?>" class="qf-btn qf-btn-secondary qf-btn-lg">Take a quiz</a>
+    <?php else: ?>
+      <?php if ($feat['feature_registration']): ?>
+        <a href="<?= e(url('/register')) ?>" class="qf-btn qf-btn-primary qf-btn-lg">Start free — no credit card</a>
+      <?php endif; ?>
+      <a href="<?= e(url('/join')) ?>" class="qf-btn qf-btn-secondary qf-btn-lg">I have a quiz code</a>
     <?php endif; ?>
-    <a href="<?= e(url('/join')) ?>" class="qf-btn qf-btn-secondary qf-btn-lg">I have a quiz code</a>
   </div>
   <p class="text-xs text-slate-500 mt-4">Free forever for personal use · Self-hostable · Your data, your server.</p>
 </section>

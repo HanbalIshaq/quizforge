@@ -12,15 +12,16 @@
 
 <?php if ($attempts): ?>
   <div class="qf-card">
+    <p class="text-xs text-slate-400 mb-2">Tip: click a column header to sort.</p>
     <div class="qf-table-wrap">
-      <table class="w-full text-sm">
+      <table class="w-full text-sm qf-sortable">
         <thead class="bg-slate-50 text-left text-slate-600">
           <tr>
             <th class="px-4 py-2.5">Name</th>
             <th class="px-4 py-2.5">Email</th>
             <?php if ($quiz['kind']==='exam'): ?><th class="px-4 py-2.5">Score</th><th class="px-4 py-2.5">%</th><?php endif; ?>
             <th class="px-4 py-2.5">Submitted</th>
-            <th class="px-4 py-2.5"></th>
+            <th class="px-4 py-2.5" data-no-sort></th>
           </tr>
         </thead>
         <tbody>
@@ -29,8 +30,8 @@
               <td class="px-4 py-2.5 font-medium"><?= e($a['student_name'] ?: 'Anonymous') ?></td>
               <td class="px-4 py-2.5 text-slate-500"><?= e($a['student_email']) ?></td>
               <?php if ($quiz['kind']==='exam'): ?>
-                <td class="px-4 py-2.5"><?= rtrim(rtrim(number_format((float)$a['score'],1),'0'),'.') ?> / <?= number_format((float)$a['max_score']) ?></td>
-                <td class="px-4 py-2.5">
+                <td class="px-4 py-2.5" data-sort="<?= (float)$a['percentage'] ?>"><?= rtrim(rtrim(number_format((float)$a['score'],1),'0'),'.') ?> / <?= number_format((float)$a['max_score']) ?></td>
+                <td class="px-4 py-2.5" data-sort="<?= (float)$a['percentage'] ?>">
                   <?= number_format((float)$a['percentage']) ?>%
                   <?php if ($a['needs_grading']): ?><span class="qf-badge qf-badge-warn ml-1">Needs grading</span>
                   <?php elseif ($quiz['pass_mark']): ?>
@@ -39,8 +40,8 @@
                   <?php endif; ?>
                 </td>
               <?php endif; ?>
-              <td class="px-4 py-2.5 text-slate-500 text-xs"><?= e(fmt_ts($a['submitted_at'])) ?></td>
-              <td class="px-4 py-2.5 text-right">
+              <td class="px-4 py-2.5 text-slate-500 text-xs" data-sort="<?= (int)$a['submitted_at'] ?>"><?= e(fmt_ts($a['submitted_at'])) ?></td>
+              <td class="px-4 py-2.5 text-right" data-sort="">
                 <a href="<?= e(url('/admin/quizzes/'.$quiz['id'].'/attempts/'.$a['id'])) ?>" class="qf-btn qf-btn-secondary qf-btn-sm">View</a>
               </td>
             </tr>

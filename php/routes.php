@@ -13,8 +13,9 @@ $CSRF_EXEMPT = [];
 $CSRF_EXEMPT_PREFIXES = ['/q/']; // public take-quiz endpoints (later steps)
 
 // ── Home ────────────────────────────────────────────────────────────────
+// Accessible to everyone (logged in or not) so users can always reach the
+// landing page. The header + hero adapt to the auth state.
 route('GET', '/', function () {
-    if (is_logged_in()) redirect('/admin');
     page('home', ['title' => app_name() . ' — ' . app_tagline()]);
 });
 

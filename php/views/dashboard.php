@@ -70,7 +70,7 @@ $accentText = ['brand'=>'text-brand-700','amber'=>'text-amber-600','emerald'=>'t
 <?php if ($quizzes): ?>
   <div class="qf-card">
     <div class="qf-table-wrap">
-      <table class="w-full text-sm">
+      <table class="w-full text-sm qf-sortable">
         <thead class="bg-slate-50 text-left text-slate-600">
           <tr>
             <th class="px-4 py-2.5">Title</th>
@@ -79,7 +79,7 @@ $accentText = ['brand'=>'text-brand-700','amber'=>'text-amber-600','emerald'=>'t
             <th class="px-4 py-2.5">Responses</th>
             <th class="px-4 py-2.5">Share code</th>
             <th class="px-4 py-2.5">Updated</th>
-            <th class="px-4 py-2.5"></th>
+            <th class="px-4 py-2.5" data-no-sort></th>
           </tr>
         </thead>
         <tbody>
@@ -93,8 +93,8 @@ $accentText = ['brand'=>'text-brand-700','amber'=>'text-amber-600','emerald'=>'t
               <td class="px-4 py-2.5"><?= (int)$q['n_q'] ?></td>
               <td class="px-4 py-2.5"><?= (int)$q['n_a'] ?></td>
               <td class="px-4 py-2.5 font-mono text-xs"><?= e($q['share_code']) ?></td>
-              <td class="px-4 py-2.5 text-slate-500 text-xs"><?= e(fmt_ts($q['updated_at'])) ?></td>
-              <td class="px-4 py-2.5 text-right whitespace-nowrap">
+              <td class="px-4 py-2.5 text-slate-500 text-xs" data-sort="<?= (int)$q['updated_at'] ?>"><?= e(fmt_ts($q['updated_at'])) ?></td>
+              <td class="px-4 py-2.5 text-right whitespace-nowrap" data-sort="">
                 <a href="<?= e(url('/admin/quizzes/'.$q['id'])) ?>" class="qf-btn qf-btn-secondary qf-btn-sm">Edit</a>
               </td>
             </tr>

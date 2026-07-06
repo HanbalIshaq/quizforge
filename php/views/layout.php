@@ -146,6 +146,48 @@ $bare = !empty($bare); // focused mode for students (slim header, no footer nav)
       if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(done).catch(function(){});}
     });
   })();
+  // Sortable tables: click a <th> to sort. Add class="qf-sortable" to a table.
+  // Mark a header <th data-no-sort> to skip it. Cells may carry data-sort="…"
+  // to control the sort value (else visible text is used). Numbers sort
+  // numerically, text sorts alphabetically (natural/numeric-aware).
+  (function(){
+    function cellVal(row, idx){
+      var td = row.children[idx]; if(!td) return '';
+      return (td.getAttribute('data-sort') !== null ? td.getAttribute('data-sort') : td.textContent).trim();
+    }
+    function parseNum(s){
+      if(s==='') return null;
+      var m = s.replace(/[, ]/g,'').match(/-?\d+(\.\d+)?/);
+      // Only treat as number if the string is essentially numeric (e.g. "55%","3","4.5")
+      if(m && /^[-\d.,%$/\s]*\d[\d.,%$/\s]*$/.test(s)) return parseFloat(m[0]);
+      return null;
+    }
+    function sortTable(table, idx, th){
+      var tbody = table.tBodies[0]; if(!tbody) return;
+      var rows = Array.prototype.slice.call(tbody.rows).filter(function(r){return r.cells.length>1;});
+      var dir = th.getAttribute('data-dir') === 'asc' ? 'desc' : 'asc';
+      table.querySelectorAll('thead th').forEach(function(h){ h.removeAttribute('data-dir'); var s=h.querySelector('.qf-sort-ar'); if(s)s.textContent=''; });
+      th.setAttribute('data-dir', dir);
+      rows.sort(function(a,b){
+        var av=cellVal(a,idx), bv=cellVal(b,idx), an=parseNum(av), bn=parseNum(bv), cmp;
+        if(an!==null && bn!==null) cmp = an-bn;
+        else cmp = av.localeCompare(bv, undefined, {numeric:true, sensitivity:'base'});
+        return dir==='asc'?cmp:-cmp;
+      });
+      rows.forEach(function(r){tbody.appendChild(r);});
+      var ar=th.querySelector('.qf-sort-ar'); if(ar) ar.textContent = dir==='asc'?' ▲':' ▼';
+    }
+    document.querySelectorAll('table.qf-sortable').forEach(function(table){
+      var ths = table.querySelectorAll('thead th');
+      ths.forEach(function(th, idx){
+        if(th.getAttribute('data-no-sort')!==null) return;
+        th.style.cursor='pointer'; th.style.userSelect='none';
+        if(!th.title) th.title='Click to sort';
+        if(!th.querySelector('.qf-sort-ar')){ var s=document.createElement('span'); s.className='qf-sort-ar text-slate-400 text-xs'; th.appendChild(s); }
+        th.addEventListener('click', function(){ sortTable(table, idx, th); });
+      });
+    });
+  })();
   </script>
 </body>
 </html>
