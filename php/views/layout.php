@@ -4,6 +4,7 @@ $u = current_user();
 $flashes = take_flashes();
 $feat = features_all();
 $pageTitle = $title ?? (app_name() . ' — ' . app_tagline());
+$bare = !empty($bare); // focused mode for students (slim header, no footer nav)
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -26,6 +27,16 @@ $pageTitle = $title ?? (app_name() . ' — ' . app_tagline());
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
   <a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-2 focus:bg-brand-700 focus:text-white focus:rounded">Skip to main content</a>
 
+  <?php if ($bare): ?>
+  <header class="bg-white border-b border-slate-200">
+    <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-center">
+      <span class="font-bold text-lg text-brand-700 flex items-center gap-2">
+        <span class="inline-block w-7 h-7 rounded bg-brand-600 text-white grid place-items-center text-sm" aria-hidden="true"><?= e(mb_substr(app_name(),0,1)) ?></span>
+        <span><?= e(app_name()) ?></span>
+      </span>
+    </div>
+  </header>
+  <?php else: ?>
   <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3 sm:gap-6">
       <a href="<?= e(url('/')) ?>" class="font-bold text-lg text-brand-700 flex items-center gap-2 shrink-0">
@@ -75,8 +86,9 @@ $pageTitle = $title ?? (app_name() . ' — ' . app_tagline());
       </div>
     </nav>
   </header>
+  <?php endif; ?>
 
-  <main id="main-content" class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-4 sm:py-6">
+  <main id="main-content" class="flex-1 w-full mx-auto px-4 sm:px-6 py-4 sm:py-6 <?= $bare ? 'max-w-3xl' : 'max-w-6xl' ?>">
     <?php if ($flashes): ?>
       <div class="mb-4 space-y-2 fade-in" role="status" aria-live="polite">
         <?php foreach ($flashes as $f): ?>
@@ -90,12 +102,18 @@ $pageTitle = $title ?? (app_name() . ' — ' . app_tagline());
     <?= $content ?? '' ?>
   </main>
 
+  <?php if ($bare): ?>
+  <footer class="mt-10 py-6 text-center text-xs text-slate-400">
+    Powered by <span class="font-semibold text-slate-500"><?= e(app_name()) ?></span>
+  </footer>
+  <?php else: ?>
   <footer class="bg-slate-900 text-slate-300 mt-12">
     <div class="max-w-6xl mx-auto px-4 py-6 text-xs text-slate-500 flex flex-wrap justify-between gap-2">
       <span>&copy; <?= date('Y') ?> <?= e(app_name()) ?>. Runs on any PHP + MySQL host.</span>
       <span>Online quiz maker · exam software · live polls · surveys · forms</span>
     </div>
   </footer>
+  <?php endif; ?>
 
   <script>
   (function(){

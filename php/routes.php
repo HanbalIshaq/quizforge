@@ -77,9 +77,18 @@ route('GET', '/logout', function () {
 
 // ── Admin dashboard is now defined in routes_quiz.php (Step 2) ───────────
 
-// ── Join (Step 1 placeholder; real one in Step 3) ─────────────────────────
+// ── Join a quiz by code ───────────────────────────────────────────────────
 route('GET', '/join', function () {
-    page('join_placeholder', ['title' => 'Take a quiz · ' . app_name()]);
+    page('join', ['title' => 'Take a quiz · ' . app_name(), 'bad' => false]);
+});
+route('POST', '/join', function () {
+    $code = strtoupper(trim((string)($_POST['code'] ?? '')));
+    $code = preg_replace('/[^A-Z0-9]/', '', $code);
+    if ($code !== '') {
+        $exists = DB::scalar("SELECT 1 FROM quizzes WHERE share_code=? AND is_published=1", [$code]);
+        if ($exists) redirect('/q/' . $code);
+    }
+    page('join', ['title' => 'Take a quiz · ' . app_name(), 'bad' => true]);
 });
 
 // Steps 2-6 will require these additional route files as they're built:
