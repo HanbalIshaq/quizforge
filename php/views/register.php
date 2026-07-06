@@ -1,0 +1,34 @@
+<?php /** Sign-up form. Expects $form (may hold prior name/email). */ ?>
+<div class="max-w-md mx-auto mt-4 sm:mt-8 bg-white border border-slate-200 rounded-xl p-5 sm:p-7 shadow-sm">
+  <h1 class="text-2xl font-bold mb-1">Create an account</h1>
+  <p class="text-sm text-slate-500 mb-5">Free forever for individual use. No credit card required.</p>
+
+  <form method="post" action="<?= e(url('/register')) ?>" class="space-y-4" novalidate>
+    <?= csrf_field() ?>
+    <div>
+      <label for="reg-name" class="block text-sm font-medium mb-1.5">Your name</label>
+      <input id="reg-name" type="text" name="name" value="<?= e($form['name'] ?? '') ?>"
+             autocomplete="name" autocapitalize="words" placeholder="Jane Doe"
+             class="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+    </div>
+    <div>
+      <label for="reg-email" class="block text-sm font-medium mb-1.5">Email</label>
+      <input id="reg-email" type="email" name="email" value="<?= e($form['email'] ?? '') ?>"
+             required autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false"
+             placeholder="you@example.com"
+             class="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+    </div>
+    <div>
+      <label for="reg-password" class="block text-sm font-medium mb-1.5">Password</label>
+      <input id="reg-password" type="password" name="password" required minlength="6" autocomplete="new-password"
+             aria-describedby="reg-password-hint"
+             class="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+      <p id="reg-password-hint" class="text-xs text-slate-500 mt-1">At least 6 characters.</p>
+    </div>
+    <button type="submit" class="w-full py-2.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">Create account</button>
+  </form>
+
+  <p class="mt-5 text-sm text-slate-600 text-center">
+    Already registered? <a href="<?= e(url('/login')) ?>" class="text-brand-700 hover:underline font-medium">Sign in</a>
+  </p>
+</div>

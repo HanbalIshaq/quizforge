@@ -1,0 +1,12 @@
+# Local config (contains DB credentials + secret) — never commit
+config.php
+
+# Local SQLite database + WAL files
+data/
+
+# User uploads
+uploads/
+
+# OS cruft
+.DS_Store
+Thumbs.db

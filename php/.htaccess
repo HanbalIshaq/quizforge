@@ -1,0 +1,46 @@
+# QuizForge PHP — Apache config for shared hosting
+# Routes every request through index.php (front controller).
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # If the app lives in a subfolder, this auto-detects the base.
+    # RewriteBase is intentionally omitted so it works in any subdirectory.
+
+    # Serve real files/directories directly (assets, uploads)
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Everything else -> index.php (path preserved in PATH_INFO / QUERY)
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>
+
+# Block direct access to sensitive files
+<FilesMatch "\.(php)$">
+    # allow index.php + install.php only at top level is handled in-app;
+    # here we just block includes/ via the rule below
+</FilesMatch>
+
+# Deny access to the includes and config directly
+<IfModule mod_authz_core.c>
+    <FilesMatch "^(config\.php|schema\.php|db\.php|auth\.php|helpers\.php|grading\.php)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+    <FilesMatch "^(config\.php|schema\.php|db\.php|auth\.php|helpers\.php|grading\.php)$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
+
+# Sensible defaults
+Options -Indexes
+DirectoryIndex index.php
+
+# Upload size (shared hosts often cap this; adjust if your host allows)
+<IfModule mod_php.c>
+    php_value upload_max_filesize 16M
+    php_value post_max_size 20M
+</IfModule>
