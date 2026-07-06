@@ -39,9 +39,22 @@ function current_user(): ?array
     return $cache[$uid];
 }
 
+/**
+ * True only when there's a session uid AND that user actually exists and is
+ * not suspended. This is the auth source of truth. It self-heals orphaned
+ * sessions (uid pointing to a deleted user) by clearing the stale uid — which
+ * fixes the "dashboard shows but header says Sign in / Welcome back, <blank>"
+ * broken half-logged-in state.
+ */
 function is_logged_in(): bool
 {
-    return !empty($_SESSION['uid']);
+    if (empty($_SESSION['uid'])) return false;
+    $u = current_user();
+    if (!$u || !empty($u['is_suspended'])) {
+        unset($_SESSION['uid']);   // stale/invalid session — clear it
+        return false;
+    }
+    return true;
 }
 
 /** Guard: require login, else redirect to /login preserving the target. */

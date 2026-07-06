@@ -44,6 +44,23 @@ check('submitted attempts = 1', (int)DB::scalar("SELECT COUNT(*) FROM attempts W
 $live = (int)DB::scalar("SELECT COUNT(*) FROM attempts WHERE submitted_at IS NULL AND started_at >= ?", [now_ts()-900]);
 check('live-taking (in-progress <15min) = 1', $live === 1, (string)$live);
 
+echo "\nOrphaned-session self-heal (the 'Welcome back, <blank>' bug):\n";
+require $root.'/includes/auth.php';
+$_SESSION = [];
+// Valid user (id 1 created above) -> logged in
+$_SESSION['uid'] = 1;
+check('valid uid -> is_logged_in true', is_logged_in() === true);
+check('valid uid -> current_user not null', current_user() !== null);
+// Phantom uid (no such user) -> not logged in AND session cleared
+$_SESSION['uid'] = 999;
+check('phantom uid -> is_logged_in false', is_logged_in() === false);
+check('phantom uid -> session uid cleared (self-heal)', empty($_SESSION['uid']));
+// Suspended user -> not logged in
+DB::run("UPDATE users SET is_suspended=1 WHERE id=2");
+$_SESSION['uid'] = 2;
+check('suspended user -> is_logged_in false', is_logged_in() === false);
+DB::run("UPDATE users SET is_suspended=0 WHERE id=2");
+
 echo "\nAD_SLOTS catalogue:\n";
 check('5 ad slots defined', count(AD_SLOTS) === 5);
 

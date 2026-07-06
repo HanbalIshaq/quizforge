@@ -49,6 +49,11 @@ start_session();
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 
+// Self-heal orphaned sessions: if a uid is set but the user no longer exists
+// (or is suspended), is_logged_in() clears the stale uid. Running it once here
+// means every page — including the public header — reflects the true state.
+if (!empty($_SESSION['uid'])) { is_logged_in(); }
+
 // ── Work out the route path (works with or without mod_rewrite) ───────────
 function route_path(): string
 {
