@@ -5,9 +5,12 @@
   var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
 
   // ── Settings auto-save (fetch on change, debounced for text inputs) ──
-  var card = document.getElementById('settings-card');
+  // IMPORTANT: bind across the WHOLE editor, not just the main settings card —
+  // the anti-cheating fields (camera, fullscreen, tab-switch, password, …)
+  // live in a separate <details> block. Binding only to #settings-card meant
+  // ticking those did nothing (never saved).
   var status = document.getElementById('save-status');
-  if (card) {
+  if (document.getElementById('settings-card')) {
     var settingsUrl = window.location.pathname.replace(/\/$/, '') + '/settings';
     var timer = null;
     function saveField(field, value) {
@@ -25,7 +28,9 @@
         if (status) { status.textContent = 'Save failed'; status.className = 'text-xs text-red-600'; }
       });
     }
-    card.querySelectorAll('.qf-auto').forEach(function (el) {
+    // Whole-document scope so EVERY .qf-auto / .qf-auto-check field autosaves,
+    // wherever it sits on the page (main settings, anti-cheat, etc.).
+    document.querySelectorAll('.qf-auto').forEach(function (el) {
       el.addEventListener('input', function () {
         clearTimeout(timer);
         timer = setTimeout(function () { saveField(el.dataset.field, el.value); }, 600);
@@ -35,7 +40,7 @@
         saveField(el.dataset.field, el.value);
       });
     });
-    card.querySelectorAll('.qf-auto-check').forEach(function (el) {
+    document.querySelectorAll('.qf-auto-check').forEach(function (el) {
       el.addEventListener('change', function () { saveField(el.dataset.field, el.checked ? '1' : '0'); });
     });
   }
