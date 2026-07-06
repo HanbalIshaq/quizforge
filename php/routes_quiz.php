@@ -121,6 +121,42 @@ route('POST', '/admin/quizzes/{id}/questions', function ($p) {
     redirect('/admin/quizzes/' . $quiz['id']);
 });
 
+// ── AI question generation ────────────────────────────────────────────────
+route('POST', '/admin/quizzes/{id}/ai-generate', function ($p) {
+    require_login();
+    $quiz = get_owned_quiz((int)$p['id']);
+    if (!feature_enabled('feature_ai_quiz_gen') || !ai_available()) {
+        flash('AI generation is not enabled on this server.', 'error');
+        redirect('/admin/quizzes/'.$quiz['id']);
+    }
+    $uid = (int)$_SESSION['uid'];
+    $limit = ai_daily_limit();
+    if ($limit > 0 && ai_generations_today($uid) >= $limit) {
+        flash("Daily AI limit reached ({$limit}/day). Try again tomorrow.", 'error');
+        redirect('/admin/quizzes/'.$quiz['id']);
+    }
+    $material = (string)($_POST['material'] ?? '');
+    $n = max(1, min(50, to_int($_POST['n'] ?? 10, 10)));
+    $type = $_POST['qtype'] ?? 'mcq_single';
+    try {
+        $qs = ai_generate_questions($material, $n, $type);
+    } catch (Throwable $e) {
+        flash('AI generation failed: ' . $e->getMessage(), 'error');
+        redirect('/admin/quizzes/'.$quiz['id']);
+    }
+    $pos = (int) (DB::scalar("SELECT COALESCE(MAX(position),-1)+1 FROM questions WHERE quiz_id=?", [$quiz['id']]) ?? 0);
+    foreach ($qs as $q) {
+        DB::insert("INSERT INTO questions(quiz_id,type,text,options,correct_answers,points,position,explanation,time_limit_seconds,is_required)
+                    VALUES(?,?,?,?,?,?,?,?,0,1)",
+            [$quiz['id'],$q['type'],$q['text'],json_encode($q['options']),json_encode(array_values($q['correct'])),$q['points'],$pos++,$q['explanation']]);
+    }
+    DB::insert("INSERT INTO ai_generations(user_id,quiz_id,n_questions,created_at) VALUES(?,?,?,?)", [$uid,$quiz['id'],count($qs),now_ts()]);
+    DB::run("UPDATE quizzes SET updated_at=? WHERE id=?", [now_ts(), $quiz['id']]);
+    $remaining = $limit>0 ? ' ('.($limit-ai_generations_today($uid)).' left today)' : '';
+    flash('AI added '.count($qs).' question(s).'.$remaining, 'success');
+    redirect('/admin/quizzes/'.$quiz['id']);
+});
+
 // ── Bulk import questions ─────────────────────────────────────────────────
 route('POST', '/admin/quizzes/{id}/import', function ($p) {
     require_login();

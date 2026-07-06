@@ -110,6 +110,29 @@ foreach ($types as [$val,$label,$grp]) { $byGroup[$grp][] = [$val,$label]; }
     </details>
     <?php endif; ?>
 
+    <?php if (feature_enabled('feature_ai_quiz_gen') && ai_available()): ?>
+    <details class="qf-card qf-card-pad">
+      <summary class="font-semibold cursor-pointer">🤖 AI generate questions</summary>
+      <form method="post" action="<?= e(url('/admin/quizzes/'.$quiz['id'].'/ai-generate')) ?>" class="mt-3 space-y-2 text-sm">
+        <?= csrf_field() ?>
+        <p class="text-xs text-slate-500">Paste source material — a topic, notes, or an article — and AI drafts questions you can edit.</p>
+        <textarea name="material" rows="5" required class="qf-textarea text-xs" placeholder="e.g. Photosynthesis for 9th-grade biology, or paste a chapter…"></textarea>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="text-xs text-slate-600">Questions
+            <input type="number" name="n" value="10" min="1" max="30" class="qf-input" style="padding:.4rem .6rem" /></label>
+          <label class="text-xs text-slate-600">Type
+            <select name="qtype" class="qf-select" style="padding:.4rem .6rem">
+              <option value="mcq_single">Multiple choice</option>
+              <option value="mcq_multi">Multiple choice (multi)</option>
+              <option value="true_false">True / False</option>
+              <option value="short_answer">Short answer</option>
+            </select></label>
+        </div>
+        <button class="qf-btn qf-btn-primary qf-btn-block qf-btn-sm">✨ Generate &amp; add</button>
+      </form>
+    </details>
+    <?php endif; ?>
+
     <details class="qf-card qf-card-pad">
       <summary class="font-semibold cursor-pointer">📥 Bulk import</summary>
       <form method="post" action="<?= e(url('/admin/quizzes/'.$quiz['id'].'/import')) ?>" enctype="multipart/form-data" class="mt-3 space-y-2 text-sm">

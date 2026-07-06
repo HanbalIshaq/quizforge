@@ -29,6 +29,8 @@ require __DIR__ . '/includes/quiz.php';
 require __DIR__ . '/includes/importers.php';
 require __DIR__ . '/includes/pdf.php';
 require __DIR__ . '/includes/certificates.php';
+require __DIR__ . '/includes/ai.php';
+require __DIR__ . '/includes/mailer.php';
 
 // Boot DB + session
 try {

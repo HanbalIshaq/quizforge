@@ -69,6 +69,46 @@ route('POST', '/login', function () {
     exit;
 });
 
+// ── Forgot / reset password ───────────────────────────────────────────────
+route('GET', '/forgot-password', function () {
+    page('forgot_password', ['title' => 'Reset password · ' . app_name(), 'sent' => false, 'link' => null]);
+});
+route('POST', '/forgot-password', function () {
+    $email = strtolower(trim((string)($_POST['email'] ?? '')));
+    $link = null;
+    $user = $email ? DB::one("SELECT id FROM users WHERE email=?", [$email]) : null;
+    if ($user) {
+        $token = random_token(24);
+        DB::insert("INSERT INTO password_resets(user_id, token, created_at, expires_at) VALUES(?,?,?,?)",
+            [$user['id'], $token, now_ts(), now_ts() + 900]); // 15 min
+        $url = abs_url('/reset-password/' . $token);
+        $ok = send_mail($email, app_name() . ' — password reset',
+            "We received a request to reset your password.\n\nOpen this link (valid 15 minutes):\n{$url}\n\nIf you didn't request this, ignore this email.");
+        if (!$ok) $link = $url; // show on-screen when mail isn't available (dev / no SMTP)
+    }
+    // Always show the same message (don't leak which emails exist)
+    page('forgot_password', ['title' => 'Reset password · ' . app_name(), 'sent' => true, 'link' => $link]);
+});
+route('GET', '/reset-password/{token}', function ($p) {
+    $row = DB::one("SELECT * FROM password_resets WHERE token=?", [$p['token']]);
+    $valid = $row && !$row['used_at'] && (int)$row['expires_at'] > now_ts();
+    page('reset_password', ['title' => 'Set new password · ' . app_name(), 'token' => $p['token'], 'valid' => $valid]);
+});
+route('POST', '/reset-password/{token}', function ($p) {
+    $row = DB::one("SELECT * FROM password_resets WHERE token=?", [$p['token']]);
+    $valid = $row && !$row['used_at'] && (int)$row['expires_at'] > now_ts();
+    if (!$valid) { page('reset_password', ['title'=>'Set new password','token'=>$p['token'],'valid'=>false]); return; }
+    $pw = (string)($_POST['password'] ?? '');
+    if (strlen($pw) < 6) {
+        flash('Password must be at least 6 characters.', 'error');
+        page('reset_password', ['title'=>'Set new password','token'=>$p['token'],'valid'=>true]); return;
+    }
+    DB::run("UPDATE users SET password_hash=?, failed_login_count=0, locked_until=NULL WHERE id=?", [hash_password($pw), $row['user_id']]);
+    DB::run("UPDATE password_resets SET used_at=? WHERE id=?", [now_ts(), $row['id']]);
+    flash('Password updated — you can sign in now.', 'success');
+    redirect('/login');
+});
+
 // ── Logout ──────────────────────────────────────────────────────────────
 route('GET', '/logout', function () {
     logout_user();
