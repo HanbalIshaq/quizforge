@@ -32,6 +32,8 @@ if ($quiz['kind']==='exam'):
         </div>
       </div>
     </div>
+  <?php elseif (empty($quiz['certificate_enabled'])): ?>
+    <div class="qf-card qf-card-pad mb-4 text-sm text-slate-600">🏆 Certificates are turned off for this quiz — enable "Award a PDF certificate" in the editor's Certificate section.</div>
   <?php elseif (!$quiz['pass_mark']): ?>
     <div class="qf-card qf-card-pad mb-4 text-sm text-slate-600">🏆 No certificate — set a <b>pass mark</b> in the quiz settings to auto-issue certificates to students who pass.</div>
   <?php elseif ($attempt['needs_grading']): ?>

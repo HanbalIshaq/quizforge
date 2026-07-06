@@ -25,7 +25,8 @@ function issue_certificate_if_passed(array $quiz, array $attempt): ?string
 {
     if (!feature_enabled('feature_certificates')) return null;
     if ($quiz['kind'] !== 'exam') return null;
-    if (empty($quiz['pass_mark'])) return null;
+    if (empty($quiz['certificate_enabled'])) return null;   // explicit per-quiz opt-in
+    if (empty($quiz['pass_mark'])) return null;             // need a pass threshold
     if ($attempt['needs_grading']) return null;
     if ((float)$attempt['percentage'] < (float)$quiz['pass_mark']) return null;
 
@@ -42,9 +43,18 @@ function issue_certificate_if_passed(array $quiz, array $attempt): ?string
     return $serial;
 }
 
-/** Render a certificate PDF (bytes) for a certificate row. */
-function render_certificate_pdf(array $cert, string $quizTitle, string $verifyUrl): string
+/**
+ * Render a certificate PDF (bytes). $opts may override the wording:
+ *   'title'   — big heading (default "Certificate of Achievement")
+ *   'message' — line above the quiz title (default "has successfully completed")
+ *   'signer'  — optional signatory line at the bottom (name / title)
+ */
+function render_certificate_pdf(array $cert, string $quizTitle, string $verifyUrl, array $opts = []): string
 {
+    $title   = trim((string)($opts['title']   ?? '')) ?: 'Certificate of Achievement';
+    $message = trim((string)($opts['message'] ?? '')) ?: 'has successfully completed';
+    $signer  = trim((string)($opts['signer']  ?? ''));
+
     $pdf = new MiniPDF(); // A4 landscape
     $W = $pdf->width();
 
@@ -56,7 +66,7 @@ function render_certificate_pdf(array $cert, string $quizTitle, string $verifyUr
 
     $pdf->setColor(15, 23, 42);
     $pdf->setFont(true, 34);
-    $pdf->textCenter(120, 'Certificate of Achievement');
+    $pdf->textCenter(120, $title);
 
     $pdf->setColor(100, 116, 139);
     $pdf->setFont(false, 13);
@@ -68,7 +78,7 @@ function render_certificate_pdf(array $cert, string $quizTitle, string $verifyUr
 
     $pdf->setColor(100, 116, 139);
     $pdf->setFont(false, 13);
-    $pdf->textCenter(258, 'has successfully completed');
+    $pdf->textCenter(258, $message);
 
     $pdf->setColor(15, 23, 42);
     $pdf->setFont(true, 18);
@@ -78,6 +88,17 @@ function render_certificate_pdf(array $cert, string $quizTitle, string $verifyUr
     $pdf->setColor(5, 150, 105);
     $pdf->setFont(true, 15);
     $pdf->textCenter(330, "Score: {$pct}%");
+
+    // Optional signatory line
+    if ($signer !== '') {
+        $pdf->setColor(15, 23, 42);
+        $pdf->setFont(false, 12);
+        $pdf->textCenter(410, $signer);
+        $pdf->setColor(148, 163, 184);
+        $pdf->line($W/2 - 90, 400, $W/2 + 90, 400, 0.6);
+        $pdf->setFont(false, 9);
+        $pdf->textCenter(420, 'Authorized signature');
+    }
 
     // Footer line: date (left) + serial (right)
     $issued = date('F j, Y', (int)$cert['issued_at']);
@@ -105,9 +126,13 @@ function certificate_pdf_bytes(array $cert): string
         if (strncmp($cached, '%PDF', 4) === 0) return $cached; // legacy raw
     }
 
-    $quiz = DB::one("SELECT title FROM quizzes WHERE id=?", [$cert['quiz_id']]);
+    $quiz = DB::one("SELECT title, cert_title, cert_message, cert_signer FROM quizzes WHERE id=?", [$cert['quiz_id']]);
     $verifyUrl = abs_url('/verify/' . $cert['serial']);
-    $pdf = render_certificate_pdf($cert, $quiz['title'] ?? 'Quiz', $verifyUrl);
+    $pdf = render_certificate_pdf($cert, $quiz['title'] ?? 'Quiz', $verifyUrl, [
+        'title'   => $quiz['cert_title']   ?? '',
+        'message' => $quiz['cert_message'] ?? '',
+        'signer'  => $quiz['cert_signer']  ?? '',
+    ]);
     try {
         // Store as base64 to stay portable across MySQL LONGBLOB + SQLite BLOB
         // (we base64 on write, decode on read) — avoids binary-escaping issues.

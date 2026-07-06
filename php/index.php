@@ -49,6 +49,9 @@ start_session();
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 
+// Apply any pending schema migrations (version-gated: a no-op once current).
+try { run_migrations(); } catch (Throwable $e) { error_log('migrate: '.$e->getMessage()); }
+
 // Self-heal orphaned sessions: if a uid is set but the user no longer exists
 // (or is suspended), is_logged_in() clears the stale uid. Running it once here
 // means every page — including the public header — reflects the true state.

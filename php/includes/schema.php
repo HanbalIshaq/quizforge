@@ -66,6 +66,10 @@ function create_schema(): void
         ip_allowlist TEXT,
         camera_proctor INT DEFAULT 0,
         proctor_snapshot_interval INT DEFAULT 30,
+        certificate_enabled INT DEFAULT 0,
+        cert_title VARCHAR(160),
+        cert_message VARCHAR(255),
+        cert_signer VARCHAR(160),
         created_at $ts NOT NULL,
         updated_at $ts NOT NULL
     )$sfx";
@@ -245,4 +249,55 @@ function create_schema(): void
             // for CREATE INDEX, so a duplicate throws; that's fine).
         }
     }
+}
+
+/**
+ * Current schema version. Bump when adding columns/tables that existing
+ * installs need. run_migrations() applies anything missing.
+ */
+const SCHEMA_VERSION = 2;
+
+/** Add a column if it's missing (portable across MySQL + SQLite). Returns
+ *  true if it was actually added. */
+function ensure_column(string $table, string $col, string $decl): bool
+{
+    // Does the column already exist?
+    $exists = false;
+    try {
+        if (DB::driver() === 'sqlite') {
+            foreach (DB::all("PRAGMA table_info($table)") as $c) {
+                if (strcasecmp($c['name'], $col) === 0) { $exists = true; break; }
+            }
+        } else {
+            $exists = (bool) DB::one(
+                "SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?",
+                [$table, $col]
+            );
+        }
+    } catch (Throwable $e) { /* fall through to try the ALTER */ }
+    if ($exists) return false;
+    try { DB::run("ALTER TABLE $table ADD COLUMN $col $decl"); return true; }
+    catch (Throwable $e) { return false; } // e.g. duplicate on a race — fine
+}
+
+/** Apply migrations for installs created before the current SCHEMA_VERSION.
+ *  Called once (version-gated) from the front controller. */
+function run_migrations(): void
+{
+    $stored = (int) (setting_get('schema_version', '1') ?? 1);
+    if ($stored >= SCHEMA_VERSION) return;
+
+    // v2: per-quiz certificate control + customization
+    $addedEnabled = ensure_column('quizzes', 'certificate_enabled', 'INT DEFAULT 0');
+    ensure_column('quizzes', 'cert_title', 'VARCHAR(160)');
+    ensure_column('quizzes', 'cert_message', 'VARCHAR(255)');
+    ensure_column('quizzes', 'cert_signer', 'VARCHAR(160)');
+    if ($addedEnabled) {
+        // Preserve prior behaviour: exams that already had a pass mark were
+        // auto-issuing certificates, so keep them enabled.
+        try { DB::run("UPDATE quizzes SET certificate_enabled=1 WHERE kind='exam' AND pass_mark > 0"); }
+        catch (Throwable $e) {}
+    }
+
+    setting_set('schema_version', (string) SCHEMA_VERSION);
 }

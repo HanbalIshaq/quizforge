@@ -224,7 +224,7 @@ preg_match('#/admin/quizzes/(\d+)#',$admin->location,$cm); $certQ=(int)($cm[1]??
 $csrf=$admin->csrf($BASE."/admin/quizzes/$certQ");
 $admin->post($BASE."/admin/quizzes/$certQ/questions",['type'=>'true_false','text'=>'Yes?','correct'=>['0'],'points'=>'1','_csrf'=>$csrf]);
 $csrf=$admin->csrf($BASE."/admin/quizzes/$certQ");
-$admin->post($BASE."/admin/quizzes/$certQ/settings",['pass_mark'=>'50','is_published'=>'1','_csrf'=>$csrf]);
+$admin->post($BASE."/admin/quizzes/$certQ/settings",['pass_mark'=>'50','is_published'=>'1','certificate_enabled'=>'1','_csrf'=>$csrf]);
 $ce=$admin->get($BASE."/admin/quizzes/$certQ"); $cshare=null; if(preg_match('#/q/([A-Z0-9]{5,})#',$ce,$csm))$cshare=$csm[1];
 if($cshare){
     $ct=$anon->get($BASE."/q/$cshare"); preg_match('/name="q_(\d+)"/',$ct,$cq);

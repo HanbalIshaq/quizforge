@@ -64,16 +64,6 @@ foreach ($types as [$val,$label,$grp]) { $byGroup[$grp][] = [$val,$label]; }
         <div class="qf-field">
           <label class="qf-label">Pass mark %</label>
           <input type="number" min="0" max="100" class="qf-input qf-auto" data-field="pass_mark" value="<?= (int)$quiz['pass_mark'] ?>" />
-          <?php if (feature_enabled('feature_certificates')): ?>
-            <p class="qf-hint">
-              🏆 <b>Certificates:</b>
-              <?php if ((int)$quiz['pass_mark'] > 0): ?>
-                students who score <?= (int)$quiz['pass_mark'] ?>%+ get a downloadable PDF certificate automatically.
-              <?php else: ?>
-                set a pass mark above 0 to auto-issue a PDF certificate to students who pass.
-              <?php endif; ?>
-            </p>
-          <?php endif; ?>
         </div>
       <?php endif; ?>
       <div class="space-y-2 text-sm mt-1">
@@ -115,6 +105,32 @@ foreach ($types as [$val,$label,$grp]) { $byGroup[$grp][] = [$val,$label]; }
         <div class="qf-field">
           <label class="qf-label">Auto-submit after N violations (0 = warn only)</label>
           <input type="number" min="0" class="qf-input qf-auto" data-field="violation_limit" value="<?= (int)$quiz['violation_limit'] ?>" />
+        </div>
+      </div>
+    </details>
+    <?php endif; ?>
+
+    <?php if ($quiz['kind']==='exam' && feature_enabled('feature_certificates')): ?>
+    <details class="qf-card qf-card-pad" <?= !empty($quiz['certificate_enabled'])?'open':'' ?>>
+      <summary class="font-semibold cursor-pointer">🏆 Certificate</summary>
+      <div class="mt-3 space-y-3 text-sm">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" class="qf-auto-check" data-field="certificate_enabled" <?= !empty($quiz['certificate_enabled'])?'checked':'' ?> />
+          <span>Award a PDF certificate to students who pass</span>
+        </label>
+        <p class="qf-hint">Needs a <b>pass mark</b> above 0 (set it in Settings). Students who reach it get a downloadable, verifiable certificate.</p>
+        <div class="qf-field">
+          <label class="qf-label">Certificate title</label>
+          <input class="qf-input qf-auto" data-field="cert_title" value="<?= e($quiz['cert_title'] ?? '') ?>" placeholder="Certificate of Achievement" />
+        </div>
+        <div class="qf-field">
+          <label class="qf-label">Message line</label>
+          <input class="qf-input qf-auto" data-field="cert_message" value="<?= e($quiz['cert_message'] ?? '') ?>" placeholder="has successfully completed" />
+        </div>
+        <div class="qf-field" style="margin-bottom:0">
+          <label class="qf-label">Signatory (optional)</label>
+          <input class="qf-input qf-auto" data-field="cert_signer" value="<?= e($quiz['cert_signer'] ?? '') ?>" placeholder="e.g. Dr. Jane Smith, Head of Training" />
+          <p class="qf-hint">Shown above an "Authorized signature" line on the certificate.</p>
         </div>
       </div>
     </details>

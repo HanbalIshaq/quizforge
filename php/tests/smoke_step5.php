@@ -45,7 +45,7 @@ check('serial format QF-XXXX-XXXX', (bool)preg_match('/^QF-[0-9A-F]{4}-[0-9A-F]{
 
 echo "\nissue_certificate_if_passed gating:\n";
 // exam, passed
-$q = ['id'=>$qid,'kind'=>'exam','pass_mark'=>50];
+$q = ['id'=>$qid,'kind'=>'exam','pass_mark'=>50,'certificate_enabled'=>1];
 $a = ['id'=>1,'percentage'=>80,'needs_grading'=>0,'student_name'=>'A','score'=>8,'max_score'=>10];
 DB::run("INSERT INTO attempts(id,quiz_id,student_name,started_at,submitted_at,percentage,max_score,score,needs_grading) VALUES(1,?,?,?,?,?,?,?,0)",[$qid,'A',now_ts(),now_ts(),80,10,8]);
 $s = issue_certificate_if_passed($q,$a);
@@ -54,6 +54,10 @@ check('re-issue returns same serial (idempotent)', issue_certificate_if_passed($
 $aFail = ['id'=>2,'percentage'=>30,'needs_grading'=>0,'student_name'=>'B','score'=>3,'max_score'=>10];
 DB::run("INSERT INTO attempts(id,quiz_id,student_name,started_at,submitted_at,percentage,max_score,score,needs_grading) VALUES(2,?,?,?,?,?,?,?,0)",[$qid,'B',now_ts(),now_ts(),30,10,3]);
 check('failed exam issues NO cert', issue_certificate_if_passed($q,$aFail) === null);
+$qOff = ['id'=>$qid,'kind'=>'exam','pass_mark'=>50,'certificate_enabled'=>0];
+$aOff = ['id'=>3,'percentage'=>90,'needs_grading'=>0,'student_name'=>'C','score'=>9,'max_score'=>10];
+DB::run("INSERT INTO attempts(id,quiz_id,student_name,started_at,submitted_at,percentage,max_score,score,needs_grading) VALUES(3,?,?,?,?,?,?,?,0)",[$qid,'C',now_ts(),now_ts(),90,10,9]);
+check('certificate_enabled=0 issues NO cert (even on pass)', issue_certificate_if_passed($qOff,$aOff) === null);
 
 echo "\nAI json extraction + availability:\n";
 check('extract from ```json fence', trim(_ai_extract_json("```json\n[{\"text\":\"x\"}]\n```")) === '[{"text":"x"}]');

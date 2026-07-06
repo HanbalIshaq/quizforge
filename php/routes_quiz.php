@@ -76,9 +76,11 @@ route('POST', '/admin/quizzes/{id}/settings', function ($p) {
     // Whitelist: field => type
     $bool = ['randomize_questions','randomize_options','show_correct_answers','require_name',
              'require_email','is_published','paginated','anti_paste','anti_rightclick',
-             'block_selection','require_fullscreen','detect_tab_switch','detect_devtools','camera_proctor'];
+             'block_selection','require_fullscreen','detect_tab_switch','detect_devtools','camera_proctor',
+             'certificate_enabled'];
     $int  = ['time_limit_seconds','pass_mark','max_attempts','violation_limit','proctor_snapshot_interval'];
-    $str  = ['title','description','kind','quiz_password','ip_allowlist'];
+    $str  = ['title','description','kind','quiz_password','ip_allowlist',
+             'cert_title','cert_message','cert_signer'];
     $sets = []; $vals = [];
     foreach ($bool as $f) { if (array_key_exists($f, $_POST)) { $sets[]="$f=?"; $vals[]= ($_POST[$f] === '1' || $_POST[$f]==='true' || $_POST[$f]==='on') ? 1 : 0; } }
     foreach ($int as $f)  { if (array_key_exists($f, $_POST)) { $sets[]="$f=?"; $vals[]= max(0, to_int($_POST[$f], 0)); } }
