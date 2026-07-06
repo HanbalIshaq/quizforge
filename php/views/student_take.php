@@ -31,27 +31,44 @@ $n = 0;
       data-camera="<?= (int)$quiz['camera_proctor'] ?>"
       data-snap-interval="<?= (int)$quiz['proctor_snapshot_interval'] ?>"
       <?php endif; ?>>
-  <?php if ($askName || $askEmail): ?>
-    <div class="qf-card qf-card-pad mb-4">
-      <?php if ($askName): ?>
-        <div class="qf-field"><label class="qf-label">Your name <span class="text-red-500">*</span></label>
-          <input class="qf-input" name="student_name" required autocomplete="name" /></div>
-      <?php endif; ?>
-      <?php if ($askEmail): ?>
-        <div class="qf-field" style="margin-bottom:0"><label class="qf-label">Email <span class="text-red-500">*</span></label>
-          <input class="qf-input" type="email" name="student_email" required autocomplete="email" inputmode="email" /></div>
-      <?php endif; ?>
-    </div>
-  <?php endif; ?>
-
-  <div class="space-y-4">
-    <?php foreach ($questions as $q): ?>
-      <?php if ($q['type'] === 'section_break'): ?>
-        <div class="pt-2">
-          <h2 class="text-lg font-bold text-slate-800"><?= e($q['text']) ?></h2>
-          <?php if (!empty($q['explanation'])): ?><p class="text-sm text-slate-500 mt-1"><?= e($q['explanation']) ?></p><?php endif; ?>
+  <?php
+    $paginated = !empty($quiz['paginated']);
+    $submitLabel = $isSurvey ? 'Submit response' : ($quiz['kind']==='poll' ? 'Submit vote' : 'Submit answers');
+    // Build the ordered list of "steps": optional name/email step, then one
+    // step per question (section breaks ride along with the next question).
+    $stepClass = $paginated ? 'qf-step' : 'qf-step mb-4';
+  ?>
+  <div id="qf-steps" class="<?= $paginated ? '' : 'space-y-4' ?>" data-paginated="<?= $paginated ? '1' : '0' ?>">
+    <?php if ($askName || $askEmail): ?>
+      <div class="<?= $stepClass ?>">
+        <div class="qf-card qf-card-pad">
+          <?php if ($askName): ?>
+            <div class="qf-field" data-required="1"><label class="qf-label">Your name <span class="text-red-500">*</span></label>
+              <input class="qf-input" name="student_name" required autocomplete="name" /></div>
+          <?php endif; ?>
+          <?php if ($askEmail): ?>
+            <div class="qf-field" data-required="1" style="margin-bottom:0"><label class="qf-label">Email <span class="text-red-500">*</span></label>
+              <input class="qf-input" type="email" name="student_email" required autocomplete="email" inputmode="email" /></div>
+          <?php endif; ?>
         </div>
-      <?php else: $n++; ?>
+      </div>
+    <?php endif; ?>
+
+    <?php
+      // Group a leading section break with the question that follows it.
+      $pendingSection = null;
+      foreach ($questions as $q):
+        if ($q['type'] === 'section_break') { $pendingSection = $q; continue; }
+        $n++;
+    ?>
+      <div class="<?= $stepClass ?>">
+        <?php if ($pendingSection): ?>
+          <div class="mb-3">
+            <h2 class="text-lg font-bold text-slate-800"><?= e($pendingSection['text']) ?></h2>
+            <?php if (!empty($pendingSection['explanation'])): ?><p class="text-sm text-slate-500 mt-1"><?= e($pendingSection['explanation']) ?></p><?php endif; ?>
+          </div>
+          <?php $pendingSection = null; ?>
+        <?php endif; ?>
         <div class="qf-card qf-card-pad">
           <div class="font-medium mb-3">
             <span class="text-slate-400 mr-1"><?= $n ?>.</span><?= e($q['text']) ?>
@@ -60,13 +77,22 @@ $n = 0;
           </div>
           <?= render_take_question($q) ?>
         </div>
-      <?php endif; ?>
+      </div>
     <?php endforeach; ?>
   </div>
 
-  <div class="mt-6 flex justify-end">
-    <button type="submit" id="submit-btn" class="qf-btn qf-btn-primary qf-btn-lg">Submit <?= $isSurvey?'response':($quiz['kind']==='poll'?'vote':'answers') ?></button>
-  </div>
+  <?php if ($paginated): ?>
+    <div class="mt-6 flex items-center justify-between gap-3">
+      <button type="button" id="qf-prev" class="qf-btn qf-btn-secondary" style="visibility:hidden">← Back</button>
+      <span id="qf-progress" class="text-sm text-slate-500"></span>
+      <button type="button" id="qf-next" class="qf-btn qf-btn-primary">Next →</button>
+      <button type="submit" id="submit-btn" class="qf-btn qf-btn-primary qf-btn-lg hidden"><?= $submitLabel ?></button>
+    </div>
+  <?php else: ?>
+    <div class="mt-6 flex justify-end">
+      <button type="submit" id="submit-btn" class="qf-btn qf-btn-primary qf-btn-lg"><?= $submitLabel ?></button>
+    </div>
+  <?php endif; ?>
 </form>
 
 <!-- Submitting overlay (instant feedback, prevents double-submit) -->
@@ -95,18 +121,15 @@ $n = 0;
       var box=inp.nextElementSibling; box.style.background='#4f46e5'; box.style.color='#fff';
     });
   });
-  // required validation (client)
-  form.addEventListener('submit',function(e){
-    if(submitting){e.preventDefault();return;}
-    var missing=null;
-    form.querySelectorAll('[data-required="1"]').forEach(function(block){
-      if(missing) return;
-      // data-required may be on a WRAPPER (radios/checkboxes) OR directly on
-      // the input/select/textarea itself (dropdown, text, number, textarea…).
-      // Handle both: if the marked element is itself a field, check it;
-      // otherwise check its descendant fields.
-      var tag = block.tagName.toLowerCase();
-      var inputs = (tag==='input'||tag==='select'||tag==='textarea')
+  // Return the first unanswered required field within `root` (or null).
+  // data-required may be on a WRAPPER (radios/checkboxes) OR directly on the
+  // field itself (dropdown/text/number/textarea) — handle both.
+  function firstMissing(root){
+    var miss=null;
+    root.querySelectorAll('[data-required="1"]').forEach(function(block){
+      if(miss) return;
+      var tag=block.tagName.toLowerCase();
+      var inputs=(tag==='input'||tag==='select'||tag==='textarea')
         ? [block]
         : Array.prototype.slice.call(block.querySelectorAll('input,select,textarea'));
       var ok=false;
@@ -114,12 +137,56 @@ $n = 0;
         if(i.type==='radio'||i.type==='checkbox'){ if(i.checked) ok=true; }
         else if(i.value && String(i.value).trim()!=='') ok=true;
       });
-      if(!ok) missing=block;
+      if(!ok) miss=block;
     });
+    return miss;
+  }
+  function flagMissing(block){
+    block.scrollIntoView({behavior:'smooth',block:'center'});
+    block.classList.add('qf-shake'); setTimeout(function(){block.classList.remove('qf-shake');},500);
+  }
+
+  // ── Paginated mode: one step at a time ──
+  var stepsWrap=document.getElementById('qf-steps');
+  var paginated = stepsWrap && stepsWrap.dataset.paginated==='1';
+  if(paginated){
+    var steps=Array.prototype.slice.call(stepsWrap.querySelectorAll('.qf-step'));
+    var cur=0;
+    var prevBtn=document.getElementById('qf-prev'), nextBtn=document.getElementById('qf-next'),
+        subBtn=document.getElementById('submit-btn'), prog=document.getElementById('qf-progress');
+    function showStep(i){
+      steps.forEach(function(s,idx){ s.classList.toggle('hidden', idx!==i); });
+      cur=i;
+      prevBtn.style.visibility = i>0 ? 'visible':'hidden';
+      var last = i===steps.length-1;
+      nextBtn.classList.toggle('hidden', last);
+      subBtn.classList.toggle('hidden', !last);
+      prog.textContent = 'Step '+(i+1)+' of '+steps.length;
+      window.scrollTo({top:0,behavior:'smooth'});
+    }
+    nextBtn.addEventListener('click',function(){
+      var miss=firstMissing(steps[cur]);
+      if(miss){ flagMissing(miss); return; }
+      if(cur<steps.length-1) showStep(cur+1);
+    });
+    prevBtn.addEventListener('click',function(){ if(cur>0) showStep(cur-1); });
+    showStep(0);
+  }
+
+  // required validation on submit (whole form — covers non-paginated + a
+  // final safety check in paginated mode)
+  form.addEventListener('submit',function(e){
+    if(submitting){e.preventDefault();return;}
+    var missing=firstMissing(form);
     if(missing){
       e.preventDefault();
-      missing.scrollIntoView({behavior:'smooth',block:'center'});
-      missing.classList.add('qf-shake'); setTimeout(function(){missing.classList.remove('qf-shake');},500);
+      if(paginated){
+        // jump to the step containing the missing field
+        var stepEl=missing.closest('.qf-step');
+        var idx=Array.prototype.indexOf.call(document.getElementById('qf-steps').querySelectorAll('.qf-step'), stepEl);
+        if(idx>=0){ document.getElementById('qf-steps').querySelectorAll('.qf-step').forEach(function(s,i){s.classList.toggle('hidden',i!==idx);}); }
+      }
+      flagMissing(missing);
       return;
     }
     submitting=true;
