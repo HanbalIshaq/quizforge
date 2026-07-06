@@ -204,6 +204,13 @@ route('POST', '/admin/quizzes/{id}/delete', function ($p) {
         DB::run("DELETE FROM proctor_snapshots WHERE attempt_id=?", [$a['id']]);
     }
     DB::run("DELETE FROM attempts WHERE quiz_id=?", [$quiz['id']]);
+    // Live sessions + their participants/answers.
+    $sessions = DB::all("SELECT id FROM live_sessions WHERE quiz_id=?", [$quiz['id']]);
+    foreach ($sessions as $ls) {
+        DB::run("DELETE FROM live_answers WHERE session_id=?", [$ls['id']]);
+        DB::run("DELETE FROM live_participants WHERE session_id=?", [$ls['id']]);
+    }
+    DB::run("DELETE FROM live_sessions WHERE quiz_id=?", [$quiz['id']]);
     DB::run("DELETE FROM questions WHERE quiz_id=?", [$quiz['id']]);
     DB::run("DELETE FROM quizzes WHERE id=?", [$quiz['id']]);
     flash('Quiz deleted.', 'success');
