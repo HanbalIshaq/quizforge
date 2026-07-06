@@ -64,6 +64,16 @@ foreach ($types as [$val,$label,$grp]) { $byGroup[$grp][] = [$val,$label]; }
         <div class="qf-field">
           <label class="qf-label">Pass mark %</label>
           <input type="number" min="0" max="100" class="qf-input qf-auto" data-field="pass_mark" value="<?= (int)$quiz['pass_mark'] ?>" />
+          <?php if (feature_enabled('feature_certificates')): ?>
+            <p class="qf-hint">
+              🏆 <b>Certificates:</b>
+              <?php if ((int)$quiz['pass_mark'] > 0): ?>
+                students who score <?= (int)$quiz['pass_mark'] ?>%+ get a downloadable PDF certificate automatically.
+              <?php else: ?>
+                set a pass mark above 0 to auto-issue a PDF certificate to students who pass.
+              <?php endif; ?>
+            </p>
+          <?php endif; ?>
         </div>
       <?php endif; ?>
       <div class="space-y-2 text-sm mt-1">

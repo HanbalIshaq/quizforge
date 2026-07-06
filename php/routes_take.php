@@ -314,7 +314,8 @@ route('GET', '/admin/quizzes/{id}/attempts/{aid}', function ($p) {
     }
     $violations = DB::all("SELECT * FROM violations WHERE attempt_id=? ORDER BY created_at", [$attempt['id']]);
     $snapshots = DB::all("SELECT id,captured_at,kind FROM proctor_snapshots WHERE attempt_id=? ORDER BY captured_at", [$attempt['id']]);
-    page('admin_attempt', ['title'=>'Attempt · '.($attempt['student_name']?:'Anonymous'), 'quiz'=>$quiz, 'attempt'=>$attempt, 'questions'=>$questions, 'answers'=>$answers, 'violations'=>$violations, 'snapshots'=>$snapshots]);
+    $cert = DB::one("SELECT serial FROM certificates WHERE attempt_id=?", [$attempt['id']]);
+    page('admin_attempt', ['title'=>'Attempt · '.($attempt['student_name']?:'Anonymous'), 'quiz'=>$quiz, 'attempt'=>$attempt, 'questions'=>$questions, 'answers'=>$answers, 'violations'=>$violations, 'snapshots'=>$snapshots, 'cert'=>$cert]);
 });
 
 route('POST', '/admin/quizzes/{id}/attempts/{aid}', function ($p) {
@@ -337,6 +338,10 @@ route('POST', '/admin/quizzes/{id}/attempts/{aid}', function ($p) {
     $maxScore = (float)$attempt['max_score'] ?: 1;
     $pct = $maxScore > 0 ? ($earned / $maxScore * 100) : 0;
     DB::run("UPDATE attempts SET score=?, percentage=?, needs_grading=0 WHERE id=?", [$earned, $pct, $attempt['id']]);
-    flash('Grading saved.', 'success');
+    // Now that grading is final, issue a certificate if the attempt passed
+    // (this is how essay-containing exams get their certificate).
+    $fresh = DB::one("SELECT * FROM attempts WHERE id=?", [$attempt['id']]);
+    $serial = issue_certificate_if_passed($quiz, $fresh);
+    flash($serial ? 'Grading saved. Certificate issued.' : 'Grading saved.', 'success');
     redirect('/admin/quizzes/'.$quiz['id'].'/attempts/'.$attempt['id']);
 });

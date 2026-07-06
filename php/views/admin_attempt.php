@@ -17,6 +17,30 @@ function opt_label_php(array $options, $idx) {
   <?php if ($attempt['student_email']): ?> &middot; <?= e($attempt['student_email']) ?><?php endif; ?>
 </p>
 
+<?php
+// Certificate status card (exams only)
+if ($quiz['kind']==='exam'):
+  $passed = $quiz['pass_mark'] && (float)$attempt['percentage'] >= (float)$quiz['pass_mark'] && !$attempt['needs_grading'];
+?>
+  <?php if (!empty($cert)): ?>
+    <div class="qf-card qf-card-pad mb-4" style="border-color:#a7f3d0;background:#ecfdf5">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div><span class="mr-1">🏆</span><b>Certificate issued</b> — serial <span class="font-mono text-sm"><?= e($cert['serial']) ?></span></div>
+        <div class="flex gap-2">
+          <a href="<?= e(url('/cert/'.$cert['serial'].'.pdf')) ?>" target="_blank" rel="noopener" class="qf-btn qf-btn-primary qf-btn-sm">⬇ Download PDF</a>
+          <a href="<?= e(url('/verify/'.$cert['serial'])) ?>" target="_blank" rel="noopener" class="qf-btn qf-btn-secondary qf-btn-sm">Verify</a>
+        </div>
+      </div>
+    </div>
+  <?php elseif (!$quiz['pass_mark']): ?>
+    <div class="qf-card qf-card-pad mb-4 text-sm text-slate-600">🏆 No certificate — set a <b>pass mark</b> in the quiz settings to auto-issue certificates to students who pass.</div>
+  <?php elseif ($attempt['needs_grading']): ?>
+    <div class="qf-card qf-card-pad mb-4 text-sm text-amber-700">🏆 Certificate pending — grade the written answer(s) below; if the final score reaches the pass mark, a certificate is issued automatically.</div>
+  <?php elseif (!$passed): ?>
+    <div class="qf-card qf-card-pad mb-4 text-sm text-slate-600">🏆 No certificate — this attempt (<?= number_format((float)$attempt['percentage']) ?>%) is below the pass mark of <?= (int)$quiz['pass_mark'] ?>%.</div>
+  <?php endif; ?>
+<?php endif; ?>
+
 <?php if (!empty($violations)): ?>
   <div class="qf-card qf-card-pad mb-4" style="border-color:#fecaca;background:#fef2f2">
     <p class="font-semibold text-red-800 mb-2">⚠ <?= count($violations) ?> integrity violation(s)</p>
