@@ -15,7 +15,7 @@ $CSRF_EXEMPT_PREFIXES = ['/q/']; // public take-quiz endpoints (later steps)
 // ── Home ────────────────────────────────────────────────────────────────
 route('GET', '/', function () {
     if (is_logged_in()) redirect('/admin');
-    page('home', ['title' => 'QuizForge — Online Quiz, Exam & Poll Platform']);
+    page('home', ['title' => app_name() . ' — ' . app_tagline()]);
 });
 
 // ── Register ──────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ route('GET', '/register', function () {
         flash('Public sign-up is disabled. Ask an admin to invite you.', 'error');
         redirect('/login');
     }
-    page('register', ['title' => 'Sign up · QuizForge', 'form' => []]);
+    page('register', ['title' => 'Sign up · ' . app_name(), 'form' => []]);
 });
 
 route('POST', '/register', function () {
@@ -37,18 +37,18 @@ route('POST', '/register', function () {
     [$ok, $err, $uid] = register_user($email, $password, $name);
     if (!$ok) {
         flash($err, 'error');
-        page('register', ['title' => 'Sign up · QuizForge', 'form' => ['email' => $email, 'name' => $name]]);
+        page('register', ['title' => 'Sign up · ' . app_name(), 'form' => ['email' => $email, 'name' => $name]]);
         return;
     }
     login_user((int)$uid);
-    flash('Welcome to QuizForge!', 'success');
+    flash('Welcome to ' . app_name() . '!', 'success');
     redirect('/admin');
 });
 
 // ── Login ─────────────────────────────────────────────────────────────────
 route('GET', '/login', function () {
     if (is_logged_in()) redirect('/admin');
-    page('login', ['title' => 'Sign in · QuizForge', 'form' => []]);
+    page('login', ['title' => 'Sign in · ' . app_name(), 'form' => []]);
 });
 
 route('POST', '/login', function () {
@@ -57,7 +57,7 @@ route('POST', '/login', function () {
     [$ok, $err] = attempt_login($email, $password);
     if (!$ok) {
         flash($err, 'error');
-        page('login', ['title' => 'Sign in · QuizForge', 'form' => ['email' => $email]]);
+        page('login', ['title' => 'Sign in · ' . app_name(), 'form' => ['email' => $email]]);
         return;
     }
     $next = $_SESSION['login_next'] ?? url('/admin');
@@ -79,12 +79,12 @@ route('GET', '/logout', function () {
 route('GET', '/admin', function () {
     require_login();
     $u = current_user();
-    page('admin_placeholder', ['title' => 'Dashboard · QuizForge', 'u' => $u]);
+    page('admin_placeholder', ['title' => 'Dashboard · ' . app_name(), 'u' => $u]);
 });
 
 // ── Join (Step 1 placeholder; real one in Step 3) ─────────────────────────
 route('GET', '/join', function () {
-    page('join_placeholder', ['title' => 'Take a quiz · QuizForge']);
+    page('join_placeholder', ['title' => 'Take a quiz · ' . app_name()]);
 });
 
 // Steps 2-6 will require these additional route files as they're built:

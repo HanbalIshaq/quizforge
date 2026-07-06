@@ -3,14 +3,14 @@
 $u = current_user();
 $flashes = take_flashes();
 $feat = features_all();
-$pageTitle = $title ?? 'QuizForge — Online Quiz, Exam & Poll Platform';
+$pageTitle = $title ?? (app_name() . ' — ' . app_tagline());
 ?><!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?= e($pageTitle) ?></title>
-  <meta name="description" content="QuizForge — create quizzes, exams, polls, surveys and forms. Auto-graded, anti-cheating, certificates, AI quiz generation." />
+  <meta name="description" content="<?= e(app_name()) ?> — create quizzes, exams, polls, surveys and forms. Auto-graded, anti-cheating, certificates, AI quiz generation." />
   <meta name="csrf-token" content="<?= e(csrf_token()) ?>" />
   <meta name="theme-color" content="#f8fafc" />
   <script src="https://cdn.tailwindcss.com"></script>
@@ -29,8 +29,8 @@ $pageTitle = $title ?? 'QuizForge — Online Quiz, Exam & Poll Platform';
   <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3 sm:gap-6">
       <a href="<?= e(url('/')) ?>" class="font-bold text-lg text-brand-700 flex items-center gap-2 shrink-0">
-        <span class="inline-block w-7 h-7 rounded bg-brand-600 text-white grid place-items-center text-sm" aria-hidden="true">Q</span>
-        <span>QuizForge</span>
+        <span class="inline-block w-7 h-7 rounded bg-brand-600 text-white grid place-items-center text-sm" aria-hidden="true"><?= e(mb_substr(app_name(), 0, 1)) ?></span>
+        <span><?= e(app_name()) ?></span>
       </a>
 
       <nav class="hidden md:flex items-center gap-5 text-sm text-slate-700" aria-label="Primary">
@@ -95,7 +95,7 @@ $pageTitle = $title ?? 'QuizForge — Online Quiz, Exam & Poll Platform';
 
   <footer class="bg-slate-900 text-slate-300 mt-12">
     <div class="max-w-6xl mx-auto px-4 py-6 text-xs text-slate-500 flex flex-wrap justify-between gap-2">
-      <span>&copy; QuizForge. Runs on any PHP + MySQL host.</span>
+      <span>&copy; <?= date('Y') ?> <?= e(app_name()) ?>. Runs on any PHP + MySQL host.</span>
       <span>Online quiz maker · exam software · live polls · surveys · forms</span>
     </div>
   </footer>

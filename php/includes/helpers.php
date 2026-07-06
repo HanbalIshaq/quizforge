@@ -24,6 +24,21 @@ function cfg(string $key, $default = null)
     return $c[$key] ?? $default;
 }
 
+/**
+ * Product name + tagline. Configurable in config.php ('app_name' /
+ * 'app_tagline') so the whole product can be rebranded with a one-line edit.
+ * Defaults chosen for SEO: "Quizly" keeps the top keyword "quiz" intact.
+ */
+function app_name(): string
+{
+    return (string) cfg('app_name', 'Quizly');
+}
+
+function app_tagline(): string
+{
+    return (string) cfg('app_tagline', 'Online Quiz, Exam & Poll Maker');
+}
+
 function is_installed(): bool
 {
     return is_file(__DIR__ . '/../config.php') && (bool) cfg('installed', false);

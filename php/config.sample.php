@@ -26,6 +26,11 @@ return [
     'sqlite_path' => __DIR__ . '/data/quizforge.sqlite',
 
     // ── App ───────────────────────────────────────────────────────────────
+    // Product name + tagline (shown in the UI, page titles, emails). Change
+    // these to rebrand the whole app.
+    'app_name'    => 'Quizly',
+    'app_tagline' => 'Online Quiz, Exam & Poll Maker',
+
     // A long random string — used to sign sessions. Keep it secret.
     'secret_key'  => 'change-me-to-a-long-random-string',
 
