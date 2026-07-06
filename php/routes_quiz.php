@@ -121,6 +121,29 @@ route('POST', '/admin/quizzes/{id}/questions', function ($p) {
     redirect('/admin/quizzes/' . $quiz['id']);
 });
 
+// ── Bulk import questions ─────────────────────────────────────────────────
+route('POST', '/admin/quizzes/{id}/import', function ($p) {
+    require_login();
+    $quiz = get_owned_quiz((int)$p['id']);
+    $format = $_POST['format'] ?? 'text';
+    $raw = (string)($_POST['content'] ?? '');
+    // Uploaded file takes precedence
+    if (!empty($_FILES['file']['tmp_name']) && ($_FILES['file']['error'] ?? 1) === UPLOAD_ERR_OK) {
+        if (($_FILES['file']['size'] ?? 0) <= 2 * 1024 * 1024) {
+            $ext = strtolower(pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION));
+            if (in_array($ext, ['csv','txt','json'], true)) {
+                $raw = (string) file_get_contents($_FILES['file']['tmp_name']);
+                $format = $ext === 'txt' ? 'text' : $ext;
+            }
+        }
+    }
+    if (trim($raw) === '') { flash('Nothing to import — paste content or choose a file.', 'error'); redirect('/admin/quizzes/'.$quiz['id']); }
+    $count = import_questions_into_quiz((int)$quiz['id'], $format, $raw);
+    if ($count) flash("Imported $count question(s).", 'success');
+    else flash('Could not parse any questions. Check the format.', 'error');
+    redirect('/admin/quizzes/'.$quiz['id']);
+});
+
 // ── Delete a question ─────────────────────────────────────────────────────
 route('POST', '/admin/quizzes/{id}/questions/{qid}/delete', function ($p) {
     require_login();

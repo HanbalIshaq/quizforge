@@ -109,6 +109,41 @@ foreach ($types as [$val,$label,$grp]) { $byGroup[$grp][] = [$val,$label]; }
       </div>
     </details>
     <?php endif; ?>
+
+    <details class="qf-card qf-card-pad">
+      <summary class="font-semibold cursor-pointer">📥 Bulk import</summary>
+      <form method="post" action="<?= e(url('/admin/quizzes/'.$quiz['id'].'/import')) ?>" enctype="multipart/form-data" class="mt-3 space-y-2 text-sm">
+        <?= csrf_field() ?>
+        <p class="text-xs text-slate-500">Upload a <b>.csv</b>, <b>.txt</b> or <b>.json</b> file, or paste below.</p>
+        <input type="file" name="file" accept=".csv,.txt,.json" class="w-full text-xs" />
+        <select name="format" class="qf-select" style="padding:.4rem .6rem">
+          <option value="text">Text / Aiken format</option>
+          <option value="csv">CSV</option>
+          <option value="json">JSON</option>
+        </select>
+        <textarea name="content" rows="5" class="qf-textarea font-mono text-xs" placeholder="What is 2+2?&#10;A) 3&#10;B) 4&#10;ANSWER: B"></textarea>
+        <button class="qf-btn qf-btn-secondary qf-btn-block qf-btn-sm">Import</button>
+        <details class="text-xs text-slate-500">
+          <summary class="cursor-pointer">Format examples</summary>
+          <div class="mt-2 space-y-2">
+            <div><b>Text:</b><pre class="bg-slate-50 p-2 rounded mt-1 overflow-auto">What is the capital of France?
+A) Berlin
+B) Paris
+ANSWER: B
+
+The Earth is flat.
+ANSWER: False
+
+Q: What does HTTP stand for?
+A: Hypertext Transfer Protocol</pre></div>
+            <div><b>CSV:</b><pre class="bg-slate-50 p-2 rounded mt-1 overflow-auto">type,text,opt1,opt2,opt3,opt4,correct,points
+mcq_single,Capital of France?,Berlin,Madrid,Paris,Rome,C,1
+true_false,Earth is flat,,,,,False,1
+mcq_multi,Pick primes,2,3,4,5,A|B|D,2</pre></div>
+          </div>
+        </details>
+      </form>
+    </details>
   </aside>
 
   <!-- ── Questions ── -->
