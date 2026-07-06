@@ -107,6 +107,10 @@ route('POST', '/q/{code}', function ($p) {
     DB::run("UPDATE attempts SET score=?, max_score=?, percentage=?, needs_grading=? WHERE id=?",
         [$total, $max, $pct, $needsGrading, $attemptId]);
 
+    // Auto-issue a certificate if the exam was passed
+    $attemptRow = DB::one("SELECT * FROM attempts WHERE id=?", [$attemptId]);
+    issue_certificate_if_passed($quiz, $attemptRow);
+
     $_SESSION['result_'.$qid] = $attemptId;
     redirect('/q/'.$quiz['share_code'].'/done');
 });
@@ -123,10 +127,33 @@ route('GET', '/q/{code}/done', function ($p) {
         $a['value'] = json_col($a['answer'], null);
         $answers[(int)$a['question_id']] = $a;
     }
+    $cert = DB::one("SELECT serial FROM certificates WHERE attempt_id=?", [$attemptId]);
     page('student_result', [
         'title' => 'Result · '.$quiz['title'],
-        'quiz'=>$quiz, 'attempt'=>$attempt, 'questions'=>$questions, 'answers'=>$answers, 'bare'=>true,
+        'quiz'=>$quiz, 'attempt'=>$attempt, 'questions'=>$questions, 'answers'=>$answers,
+        'cert_serial' => $cert['serial'] ?? null, 'bare'=>true,
     ]);
+});
+
+// ── Certificate download (public — anyone with the serial) ────────────────
+route('GET', '/cert/{serial}.pdf', function ($p) {
+    $cert = DB::one("SELECT * FROM certificates WHERE serial=?", [$p['serial']]);
+    if (!$cert) { http_response_code(404); page('error',['title'=>'Not found','code'=>404,'message'=>'Certificate not found.']); return; }
+    $pdf = certificate_pdf_bytes($cert);
+    $name = preg_replace('/[^A-Za-z0-9]/','_', $cert['recipient_name'] ?: 'certificate');
+    header('Content-Type: application/pdf');
+    header('Content-Disposition: attachment; filename="'.$name.'_'.$cert['serial'].'.pdf"');
+    header('Content-Length: '.strlen($pdf));
+    echo $pdf; exit;
+});
+
+// ── Certificate verification (public) ─────────────────────────────────────
+route('GET', '/verify/{serial}', function ($p) {
+    $cert = DB::one(
+        "SELECT c.*, q.title AS quiz_title FROM certificates c JOIN quizzes q ON q.id=c.quiz_id WHERE c.serial=?",
+        [$p['serial']]
+    );
+    page('cert_verify', ['title'=>'Verify certificate', 'cert'=>$cert, 'bare'=>true]);
 });
 
 // ── Admin: results (attempts table for exam/form, aggregate for poll/survey) ─

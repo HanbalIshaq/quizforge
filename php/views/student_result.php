@@ -21,6 +21,15 @@ $passed = $quiz['pass_mark'] ? ($pct >= (float)$quiz['pass_mark']) : null;
   <?php endif; ?>
 </div>
 
+<?php if (!empty($cert_serial)): ?>
+  <div class="qf-card qf-card-pad text-center mb-6" style="border-color:#a7f3d0">
+    <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center text-2xl mx-auto mb-2" aria-hidden="true">🏆</div>
+    <p class="font-semibold">Your certificate is ready</p>
+    <p class="text-xs text-slate-500 mt-1">Serial <span class="font-mono"><?= e($cert_serial) ?></span></p>
+    <a href="<?= e(url('/cert/'.$cert_serial.'.pdf')) ?>" class="qf-btn qf-btn-primary qf-btn-sm mt-3">⬇ Download PDF certificate</a>
+  </div>
+<?php endif; ?>
+
 <?php if ($isExam && $quiz['show_correct_answers'] && !$attempt['needs_grading']): ?>
   <h2 class="font-semibold mb-3">Review</h2>
   <div class="space-y-3">

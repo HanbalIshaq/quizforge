@@ -27,6 +27,8 @@ require __DIR__ . '/includes/auth.php';
 require __DIR__ . '/includes/grading.php';
 require __DIR__ . '/includes/quiz.php';
 require __DIR__ . '/includes/importers.php';
+require __DIR__ . '/includes/pdf.php';
+require __DIR__ . '/includes/certificates.php';
 
 // Boot DB + session
 try {
