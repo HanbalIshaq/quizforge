@@ -58,6 +58,67 @@ function quiz_questions(int $quizId): array
 }
 
 /**
+ * Compute per-question aggregate stats for a poll/survey results dashboard.
+ * Returns an array parallel to the (non-section) questions, each with:
+ *   q, total, and type-specific data (counts / avg / nps / texts / words).
+ */
+function quiz_aggregate(int $quizId): array
+{
+    $questions = quiz_questions($quizId);
+    $rows = DB::all(
+        "SELECT a.question_id, a.answer FROM answers a
+         JOIN attempts t ON t.id = a.attempt_id
+         WHERE t.quiz_id = ? AND t.submitted_at IS NOT NULL",
+        [$quizId]
+    );
+    $byQ = [];
+    foreach ($rows as $r) { $byQ[(int)$r['question_id']][] = json_col($r['answer'], null); }
+
+    $out = [];
+    foreach ($questions as $q) {
+        if ($q['type'] === 'section_break') continue;
+        $answers = array_values(array_filter($byQ[(int)$q['id']] ?? [], fn($v) => $v !== null && $v !== '' && $v !== []));
+        $stat = ['q' => $q, 'total' => count($answers), 'kind' => 'other'];
+
+        if (in_array($q['type'], ['mcq_single','mcq_multi','true_false','dropdown','poll'], true)) {
+            $stat['kind'] = 'choice';
+            $counts = array_fill(0, max(1, count($q['options'])), 0);
+            foreach ($answers as $v) {
+                foreach ((is_array($v) ? $v : [$v]) as $i) {
+                    $i = to_int($i, null);
+                    if ($i !== null && isset($counts[$i])) $counts[$i]++;
+                }
+            }
+            $stat['counts'] = $counts;
+        } elseif ($q['type'] === 'rating') {
+            $stat['kind'] = 'rating'; $sum = 0; $dist = array_fill(1, 5, 0);
+            foreach ($answers as $v) { $n = to_int($v, 0); if ($n>=1 && $n<=5){ $sum+=$n; $dist[$n]++; } }
+            $stat['avg'] = $answers ? round($sum / count($answers), 2) : 0; $stat['dist'] = $dist;
+        } elseif ($q['type'] === 'nps') {
+            $stat['kind'] = 'nps'; $prom=0;$pass=0;$det=0;
+            foreach ($answers as $v) { $n=to_int($v,-1); if($n>=9)$prom++; elseif($n>=7)$pass++; elseif($n>=0)$det++; }
+            $n = max(1, count($answers));
+            $stat['promoters']=$prom; $stat['passives']=$pass; $stat['detractors']=$det;
+            $stat['nps'] = round((($prom - $det) / $n) * 100);
+        } elseif (in_array($q['type'], ['short_answer','long_answer','open_ended','fill_blank','email','phone','url','address','full_name','signature'], true)) {
+            $stat['kind'] = 'text'; $texts = [];
+            foreach ($answers as $v) { $texts[] = is_array($v) ? implode(', ', $v) : (string)$v; }
+            $stat['texts'] = $texts;
+            $freq = [];
+            foreach ($texts as $t) {
+                foreach (preg_split('/[^\p{L}0-9]+/u', mb_strtolower($t)) as $w) {
+                    if (mb_strlen($w) < 3) continue;
+                    $freq[$w] = ($freq[$w] ?? 0) + 1;
+                }
+            }
+            arsort($freq); $stat['words'] = array_slice($freq, 0, 30, true);
+        }
+        $out[] = $stat;
+    }
+    return $out;
+}
+
+/**
  * Render the input(s) for one question on the student take page.
  * $q is a decoded question row; $n is the field name base (q_<id>).
  * Returns an HTML string. Covers the common + form field types; interactive
@@ -162,6 +223,49 @@ function parse_submitted_answer(string $type, $raw)
     if (is_array($raw)) $raw = implode(', ', $raw);
     $s = trim((string)$raw);
     return $s === '' ? null : $s;
+}
+
+/**
+ * Handle a form file_upload field securely. Returns a public URL string on
+ * success, or null. Hardened (ported from the Python audit fixes): extension
+ * allowlist, magic-byte content check, per-file size cap. Rejects HTML/SVG/JS/
+ * executables that could be served back as live content.
+ */
+function handle_file_upload(string $field, int $quizId): ?string
+{
+    if (empty($_FILES[$field]) || ($_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) return null;
+    $f = $_FILES[$field];
+    if (($f['size'] ?? 0) > 16 * 1024 * 1024) return null; // 16 MB
+
+    $allowed = ['pdf','doc','docx','txt','rtf','odt','xls','xlsx','csv','ods','ppt','pptx','odp',
+                'jpg','jpeg','png','gif','webp','heic','zip','mp3','wav','m4a','mp4','mov','webm'];
+    $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
+    if (!in_array($ext, $allowed, true)) return null;
+
+    // Magic-byte check for the security-critical types
+    $magic = [
+        'jpg'=>["\xff\xd8\xff"], 'jpeg'=>["\xff\xd8\xff"], 'png'=>["\x89PNG\r\n\x1a\n"],
+        'gif'=>['GIF87a','GIF89a'], 'pdf'=>['%PDF-'], 'zip'=>["PK\x03\x04","PK\x05\x06"],
+        'docx'=>["PK\x03\x04"], 'xlsx'=>["PK\x03\x04"], 'pptx'=>["PK\x03\x04"],
+    ];
+    if (isset($magic[$ext])) {
+        $head = file_get_contents($f['tmp_name'], false, null, 0, 16) ?: '';
+        $ok = false;
+        foreach ($magic[$ext] as $sig) { if (strncmp($head, $sig, strlen($sig)) === 0) $ok = true; }
+        if (!$ok) return null;
+    }
+
+    $dir = __DIR__ . '/../uploads/quiz_' . $quizId;
+    if (!is_dir($dir)) @mkdir($dir, 0775, true);
+    $safe = preg_replace('/[^A-Za-z0-9._-]/', '_', $f['name']);
+    $safe = substr($safe, 0, 80) ?: ('upload.' . $ext);
+    $final = now_ts() . '_' . bin2hex(random_bytes(4)) . '_' . $safe;
+    $path = $dir . '/' . $final;
+    if (!move_uploaded_file($f['tmp_name'], $path)) {
+        // move_uploaded_file fails in CLI/test contexts; fall back to copy
+        if (!@copy($f['tmp_name'], $path)) return null;
+    }
+    return url('/uploads/quiz_' . $quizId . '/' . $final);
 }
 
 /** Insert defaults for a new quiz of the given kind, return its id + share code. */

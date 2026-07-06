@@ -82,8 +82,12 @@ route('POST', '/q/{code}', function ($p) {
     foreach ($questions as $q) {
         if ($q['type'] === 'section_break') continue;
         $max += (float)$q['points'];
-        $raw = $_POST['q_'.$q['id']] ?? null;
-        $val = parse_submitted_answer($q['type'], $raw);
+        if ($q['type'] === 'file_upload') {
+            $val = handle_file_upload('q_'.$q['id'], $qid);
+        } else {
+            $raw = $_POST['q_'.$q['id']] ?? null;
+            $val = parse_submitted_answer($q['type'], $raw);
+        }
         if ($isScored) {
             [$isCorrect, $pts, $manual] = grade_answer($q, $val);
         } else {
@@ -125,10 +129,20 @@ route('GET', '/q/{code}/done', function ($p) {
     ]);
 });
 
-// ── Admin: results list ───────────────────────────────────────────────────
+// ── Admin: results (attempts table for exam/form, aggregate for poll/survey) ─
 route('GET', '/admin/quizzes/{id}/results', function ($p) {
     require_login();
     $quiz = get_owned_quiz((int)$p['id']);
+    $respCount = (int) DB::scalar("SELECT COUNT(*) FROM attempts WHERE quiz_id=? AND submitted_at IS NOT NULL", [$quiz['id']]);
+    if (in_array($quiz['kind'], ['poll','survey'], true)) {
+        page('poll_results', [
+            'title' => 'Results · '.$quiz['title'],
+            'quiz' => $quiz,
+            'agg' => quiz_aggregate((int)$quiz['id']),
+            'respCount' => $respCount,
+        ]);
+        return;
+    }
     $attempts = DB::all(
         "SELECT * FROM attempts WHERE quiz_id=? AND submitted_at IS NOT NULL ORDER BY submitted_at DESC",
         [$quiz['id']]
