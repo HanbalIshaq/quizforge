@@ -27,7 +27,11 @@ function issue_certificate_if_passed(array $quiz, array $attempt): ?string
     if ($quiz['kind'] !== 'exam') return null;
     if (empty($quiz['certificate_enabled'])) return null;   // explicit per-quiz opt-in
     if (empty($quiz['pass_mark'])) return null;             // need a pass threshold
-    if ($attempt['needs_grading']) return null;
+    // The student must already meet the pass mark. If an essay is still
+    // pending (needs_grading), we can still certify NOW when the auto-graded
+    // score alone already clears the bar — manual grading only ADDS points, so
+    // they can't drop below it. If they haven't cleared it yet, wait for
+    // grading (the essay might push them over).
     if ((float)$attempt['percentage'] < (float)$quiz['pass_mark']) return null;
 
     $existing = DB::one("SELECT serial FROM certificates WHERE attempt_id=?", [$attempt['id']]);
