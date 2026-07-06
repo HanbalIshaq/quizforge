@@ -24,6 +24,8 @@ if (!is_installed()) {
 
 require __DIR__ . '/includes/schema.php';
 require __DIR__ . '/includes/auth.php';
+require __DIR__ . '/includes/grading.php';
+require __DIR__ . '/includes/quiz.php';
 
 // Boot DB + session
 try {

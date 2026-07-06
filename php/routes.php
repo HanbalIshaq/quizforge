@@ -75,12 +75,7 @@ route('GET', '/logout', function () {
     redirect('/');
 });
 
-// ── Admin dashboard (Step 1 placeholder; real one in Step 2) ─────────────
-route('GET', '/admin', function () {
-    require_login();
-    $u = current_user();
-    page('admin_placeholder', ['title' => 'Dashboard · ' . app_name(), 'u' => $u]);
-});
+// ── Admin dashboard is now defined in routes_quiz.php (Step 2) ───────────
 
 // ── Join (Step 1 placeholder; real one in Step 3) ─────────────────────────
 route('GET', '/join', function () {
