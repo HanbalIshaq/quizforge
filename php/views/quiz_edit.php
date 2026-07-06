@@ -24,6 +24,10 @@ foreach ($types as [$val,$label,$grp]) { $byGroup[$grp][] = [$val,$label]; }
   <div class="flex flex-wrap gap-2 shrink-0">
     <a href="<?= e(url('/q/'.$quiz['share_code'])) ?>" target="_blank" rel="noopener" class="qf-btn qf-btn-secondary qf-btn-sm">Preview</a>
     <a href="<?= e(url('/admin/quizzes/'.$quiz['id'].'/results')) ?>" class="qf-btn qf-btn-secondary qf-btn-sm">Results</a>
+    <form method="post" action="<?= e(url('/admin/quizzes/'.$quiz['id'].'/live')) ?>">
+      <?= csrf_field() ?>
+      <button class="qf-btn qf-btn-secondary qf-btn-sm" title="Run a live, host-paced session (Kahoot-style)">🎉 Go live</button>
+    </form>
     <form method="post" action="<?= e(url('/admin/quizzes/'.$quiz['id'].'/delete')) ?>" onsubmit="return confirm('Delete this quiz and all its results? This cannot be undone.')">
       <?= csrf_field() ?>
       <button class="qf-btn qf-btn-danger qf-btn-sm">Delete</button>

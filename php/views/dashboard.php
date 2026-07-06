@@ -95,6 +95,12 @@ $accentText = ['brand'=>'text-brand-700','amber'=>'text-amber-600','emerald'=>'t
               <td class="px-4 py-2.5 font-mono text-xs"><?= e($q['share_code']) ?></td>
               <td class="px-4 py-2.5 text-slate-500 text-xs" data-sort="<?= (int)$q['updated_at'] ?>"><?= e(fmt_ts($q['updated_at'])) ?></td>
               <td class="px-4 py-2.5 text-right whitespace-nowrap" data-sort="">
+                <?php if (in_array($q['kind'], ['exam','poll'], true) && (int)$q['n_q'] > 0): ?>
+                  <form method="post" action="<?= e(url('/admin/quizzes/'.$q['id'].'/live')) ?>" class="inline">
+                    <?= csrf_field() ?>
+                    <button class="qf-btn qf-btn-ghost qf-btn-sm" title="Host a live session">🎉 Live</button>
+                  </form>
+                <?php endif; ?>
                 <a href="<?= e(url('/admin/quizzes/'.$q['id'])) ?>" class="qf-btn qf-btn-secondary qf-btn-sm">Edit</a>
               </td>
             </tr>

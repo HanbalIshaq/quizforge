@@ -221,6 +221,28 @@ function create_schema(): void
         accepted_at $ts
     )$sfx";
 
+    $tables[] = "CREATE TABLE IF NOT EXISTS live_participants (
+        id $pk,
+        session_id INT NOT NULL,
+        name VARCHAR(120) NOT NULL,
+        token VARCHAR(64) NOT NULL,
+        score REAL DEFAULT 0,
+        joined_at $ts NOT NULL,
+        last_seen $ts
+    )$sfx";
+
+    $tables[] = "CREATE TABLE IF NOT EXISTS live_answers (
+        id $pk,
+        session_id INT NOT NULL,
+        participant_id INT NOT NULL,
+        q_index INT NOT NULL,
+        question_id INT NOT NULL,
+        answer TEXT,
+        is_correct INT DEFAULT 0,
+        points REAL DEFAULT 0,
+        created_at $ts NOT NULL
+    )$sfx";
+
     foreach ($tables as $sql) {
         DB::run($sql);
     }
@@ -255,7 +277,7 @@ function create_schema(): void
  * Current schema version. Bump when adding columns/tables that existing
  * installs need. run_migrations() applies anything missing.
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /** Add a column if it's missing (portable across MySQL + SQLite). Returns
  *  true if it was actually added. */
@@ -298,6 +320,19 @@ function run_migrations(): void
         try { DB::run("UPDATE quizzes SET certificate_enabled=1 WHERE kind='exam' AND pass_mark > 0"); }
         catch (Throwable $e) {}
     }
+
+    // v3: live-session participant + answer tables (Kahoot-style live mode)
+    $sfx = DB::tableSuffix(); $pk = DB::colPk(); $ts = DB::colTs();
+    try {
+        DB::run("CREATE TABLE IF NOT EXISTS live_participants (
+            id $pk, session_id INT NOT NULL, name VARCHAR(120) NOT NULL,
+            token VARCHAR(64) NOT NULL, score REAL DEFAULT 0,
+            joined_at $ts NOT NULL, last_seen $ts)$sfx");
+        DB::run("CREATE TABLE IF NOT EXISTS live_answers (
+            id $pk, session_id INT NOT NULL, participant_id INT NOT NULL,
+            q_index INT NOT NULL, question_id INT NOT NULL, answer TEXT,
+            is_correct INT DEFAULT 0, points REAL DEFAULT 0, created_at $ts NOT NULL)$sfx");
+    } catch (Throwable $e) {}
 
     setting_set('schema_version', (string) SCHEMA_VERSION);
 }

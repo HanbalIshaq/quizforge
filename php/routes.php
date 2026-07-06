@@ -10,7 +10,7 @@
 declare(strict_types=1);
 
 $CSRF_EXEMPT = [];
-$CSRF_EXEMPT_PREFIXES = ['/q/']; // public take-quiz endpoints (later steps)
+$CSRF_EXEMPT_PREFIXES = ['/q/', '/live/']; // public take-quiz + live-play endpoints
 
 // ── Home ────────────────────────────────────────────────────────────────
 // Accessible to everyone (logged in or not) so users can always reach the
@@ -128,12 +128,15 @@ route('POST', '/join', function () {
     if ($code !== '') {
         $exists = DB::scalar("SELECT 1 FROM quizzes WHERE share_code=? AND is_published=1", [$code]);
         if ($exists) redirect('/q/' . $code);
+        // Live-session join codes share the same box.
+        $live = DB::scalar("SELECT 1 FROM live_sessions WHERE join_code=? AND status<>'ended'", [$code]);
+        if ($live) redirect('/live/' . $code);
     }
     page('join', ['title' => 'Take a quiz · ' . app_name(), 'bad' => true]);
 });
 
 // Steps 2-6 will require these additional route files as they're built:
-foreach (['routes_quiz.php', 'routes_take.php', 'routes_polls.php', 'routes_extras.php', 'routes_orgs.php'] as $rf) {
+foreach (['routes_quiz.php', 'routes_take.php', 'routes_polls.php', 'routes_extras.php', 'routes_orgs.php', 'routes_live.php'] as $rf) {
     $p = __DIR__ . '/' . $rf;
     if (is_file($p)) require $p;
 }
