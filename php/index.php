@@ -42,6 +42,13 @@ try {
 }
 start_session();
 
+// Never let the browser cache dynamic HTML — otherwise the back button /
+// bfcache can show a stale logged-out header ("Sign in") after login, or a
+// logged-in header after logout. Assets are served by Apache directly (they
+// don't hit this file), so this only affects app pages.
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+
 // ── Work out the route path (works with or without mod_rewrite) ───────────
 function route_path(): string
 {

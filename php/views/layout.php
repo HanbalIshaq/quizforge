@@ -51,7 +51,10 @@ $bare = !empty($bare); // focused mode for students (slim header, no footer nav)
 
       <div class="hidden md:flex items-center gap-3 text-sm">
         <?php if ($u): ?>
-          <a href="<?= e(url('/admin')) ?>" class="hover:text-brand-700">Dashboard</a>
+          <a href="<?= e(url('/admin')) ?>" class="hover:text-brand-700">My dashboard</a>
+          <?php if (!empty($u['is_super_admin'])): ?>
+            <a href="<?= e(url('/admin/site')) ?>" class="hover:text-brand-700">Site admin</a>
+          <?php endif; ?>
           <span class="text-slate-600 max-w-[10rem] truncate" title="<?= e($u['email']) ?>"><?= e($u['name'] ?: $u['email']) ?></span>
           <a href="<?= e(url('/logout')) ?>" class="text-slate-500 hover:text-red-600">Sign out</a>
         <?php else: ?>
@@ -75,7 +78,10 @@ $bare = !empty($bare); // focused mode for students (slim header, no footer nav)
         <div class="my-1 border-t border-slate-200"></div>
         <?php if ($u): ?>
           <div class="px-2 py-2 text-xs text-slate-500 truncate">Signed in as <span class="text-slate-700 font-medium"><?= e($u['name'] ?: $u['email']) ?></span></div>
-          <a href="<?= e(url('/admin')) ?>" class="min-h-[44px] flex items-center text-slate-700 hover:bg-slate-50 px-2 rounded">Dashboard</a>
+          <a href="<?= e(url('/admin')) ?>" class="min-h-[44px] flex items-center text-slate-700 hover:bg-slate-50 px-2 rounded">My dashboard</a>
+          <?php if (!empty($u['is_super_admin'])): ?>
+            <a href="<?= e(url('/admin/site')) ?>" class="min-h-[44px] flex items-center text-slate-700 hover:bg-slate-50 px-2 rounded">Site admin</a>
+          <?php endif; ?>
           <a href="<?= e(url('/logout')) ?>" class="min-h-[44px] flex items-center text-red-600 hover:bg-red-50 px-2 rounded">Sign out</a>
         <?php else: ?>
           <a href="<?= e(url('/login')) ?>" class="min-h-[44px] flex items-center text-slate-700 hover:bg-slate-50 px-2 rounded">Sign in</a>
@@ -86,6 +92,10 @@ $bare = !empty($bare); // focused mode for students (slim header, no footer nav)
       </div>
     </nav>
   </header>
+  <?php endif; ?>
+
+  <?php $adHeader = ad_slot('header'); if ($adHeader): ?>
+    <div class="w-full flex justify-center py-2 px-4"><?= $adHeader ?></div>
   <?php endif; ?>
 
   <main id="main-content" class="flex-1 w-full mx-auto px-4 sm:px-6 py-4 sm:py-6 <?= $bare ? 'max-w-3xl' : 'max-w-6xl' ?>">
@@ -100,6 +110,10 @@ $bare = !empty($bare); // focused mode for students (slim header, no footer nav)
     <?php endif; ?>
 
     <?= $content ?? '' ?>
+
+    <?php $adFooter = ad_slot('footer'); if ($adFooter): ?>
+      <div class="w-full flex justify-center mt-8"><?= $adFooter ?></div>
+    <?php endif; ?>
   </main>
 
   <?php if ($bare): ?>

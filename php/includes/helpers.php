@@ -226,6 +226,29 @@ function features_all(): array
     return $out;
 }
 
+// ── Ad slots ─────────────────────────────────────────────────────────────
+// Super-admin can paste ad network code (AdSense, etc.) per slot in the site
+// panel. A slot renders its raw HTML ONLY when ads are globally enabled AND
+// that slot has code — otherwise it outputs nothing (no empty boxes).
+// Ad code is trusted super-admin input, so it is intentionally NOT escaped.
+
+const AD_SLOTS = ['header', 'footer', 'sidebar', 'quiz_top', 'results'];
+
+function ads_enabled(): bool
+{
+    return setting_get('ads_enabled', '0') === '1';
+}
+
+/** Raw ad HTML for a slot, or '' if ads are off / no code set. */
+function ad_slot(string $slot): string
+{
+    if (!ads_enabled()) return '';
+    if (!in_array($slot, AD_SLOTS, true)) return '';
+    $code = trim((string) setting_get('ad_code_' . $slot, ''));
+    if ($code === '') return '';
+    return '<div class="qf-ad qf-ad-' . e($slot) . '" aria-label="Advertisement">' . $code . '</div>';
+}
+
 // ── Small utilities ──────────────────────────────────────────────────────────
 
 /** Format a unix timestamp for display. */
