@@ -18,13 +18,29 @@ function get_public_quiz(string $code): array
 // ── Take page ─────────────────────────────────────────────────────────────
 route('GET', '/q/{code}', function ($p) {
     $quiz = get_public_quiz($p['code']);
+    // IP allow-list gate
+    if (!empty($quiz['ip_allowlist']) && !ip_allowed($quiz['ip_allowlist'], $_SERVER['REMOTE_ADDR'] ?? '')) {
+        page('student_blocked', ['title'=>$quiz['title'], 'quiz'=>$quiz,
+            'reason'=>'Your network is not allowed to take this quiz.', 'bare'=>true]);
+        return;
+    }
+    // Max attempts (per browser session)
+    if (!empty($quiz['max_attempts'])) {
+        $done = (int)($_SESSION['submits_'.$quiz['id']] ?? 0);
+        if ($done >= (int)$quiz['max_attempts']) {
+            page('student_blocked', ['title'=>$quiz['title'], 'quiz'=>$quiz,
+                'reason'=>'You have reached the maximum number of attempts ('.(int)$quiz['max_attempts'].') for this quiz.', 'bare'=>true]);
+            return;
+        }
+    }
     // Password gate
     if (!empty($quiz['quiz_password']) && empty($_SESSION['pass_ok_'.$quiz['id']])) {
         page('student_password', ['title'=>$quiz['title'], 'quiz'=>$quiz, 'bad'=>false]);
         return;
     }
-    $questions = quiz_questions((int)$quiz['id']);
     $attemptId = get_or_create_draft($quiz);
+    $questions = quiz_questions((int)$quiz['id']);
+    $questions = randomize_questions_for($quiz, $questions, $attemptId);
     page('student_take', [
         'title' => $quiz['title'],
         'quiz' => $quiz,
@@ -115,6 +131,7 @@ route('POST', '/q/{code}', function ($p) {
     issue_certificate_if_passed($quiz, $attemptRow);
 
     unset($_SESSION['draft_'.$qid]);              // next attempt starts fresh
+    $_SESSION['submits_'.$qid] = (int)($_SESSION['submits_'.$qid] ?? 0) + 1; // max-attempts counter
     $_SESSION['result_'.$qid] = $attemptId;
     redirect('/q/'.$quiz['share_code'].'/done');
 });

@@ -225,6 +225,75 @@ function parse_submitted_answer(string $type, $raw)
     return $s === '' ? null : $s;
 }
 
+/** Fisher-Yates shuffle of a list, deterministic for a given seed. */
+function seeded_shuffle(array $list, int $seed): array
+{
+    mt_srand($seed);
+    for ($i = count($list) - 1; $i > 0; $i--) {
+        $j = mt_rand(0, $i);
+        [$list[$i], $list[$j]] = [$list[$j], $list[$i]];
+    }
+    mt_srand(); // restore randomness
+    return $list;
+}
+
+/** Shuffle an array's ITERATION ORDER while keeping original keys attached.
+ *  Used to randomize option display order without changing option indices
+ *  (the stored answer + grading still reference the original index). */
+function shuffle_preserve_keys(array $arr, int $seed): array
+{
+    $keys = array_keys($arr);
+    mt_srand($seed);
+    for ($i = count($keys) - 1; $i > 0; $i--) {
+        $j = mt_rand(0, $i);
+        [$keys[$i], $keys[$j]] = [$keys[$j], $keys[$i]];
+    }
+    mt_srand();
+    $out = [];
+    foreach ($keys as $k) $out[$k] = $arr[$k];
+    return $out;
+}
+
+/** Apply per-attempt randomization to a question list based on quiz settings. */
+function randomize_questions_for(array $quiz, array $questions, int $attemptId): array
+{
+    if (!empty($quiz['randomize_options'])) {
+        foreach ($questions as &$q) {
+            if (in_array($q['type'], choice_types(), true) && is_array($q['options']) && $q['options']) {
+                $q['options'] = shuffle_preserve_keys($q['options'], $attemptId * 100 + (int)$q['id']);
+            }
+        }
+        unset($q);
+    }
+    if (!empty($quiz['randomize_questions'])) {
+        // keep section breaks anchored to their following question by shuffling
+        // only the non-section questions among themselves
+        $questions = seeded_shuffle($questions, $attemptId);
+    }
+    return $questions;
+}
+
+/** Is $ip allowed by a comma/newline list of IPs and CIDR ranges? Empty = open. */
+function ip_allowed(string $allowlist, string $ip): bool
+{
+    $allowlist = trim($allowlist);
+    if ($allowlist === '') return true;
+    $entries = preg_split('/[\s,]+/', $allowlist, -1, PREG_SPLIT_NO_EMPTY);
+    foreach ($entries as $entry) {
+        if (strpos($entry, '/') !== false) {
+            [$subnet, $bits] = explode('/', $entry, 2);
+            $bits = (int)$bits;
+            $ipL = ip2long($ip); $subL = ip2long($subnet);
+            if ($ipL === false || $subL === false) continue;
+            $mask = $bits === 0 ? 0 : (~0 << (32 - $bits)) & 0xFFFFFFFF;
+            if (($ipL & $mask) === ($subL & $mask)) return true;
+        } elseif ($entry === $ip) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /**
  * Get (or create) the in-progress draft attempt for this browser + quiz.
  * Lets us attach anti-cheat violations and camera snapshots to a record

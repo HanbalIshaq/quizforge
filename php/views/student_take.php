@@ -267,6 +267,15 @@ $n = 0;
   if(d.antiRightclick==='1'){
     document.addEventListener('contextmenu', function(e){ e.preventDefault(); if(!submitting) report('rightclick','right-click blocked'); });
   }
+  // Detect dev-tools open (heuristic: large window/viewport gap). Reports once.
+  if(d.detectDevtools==='1'){
+    var dtReported=false;
+    setInterval(function(){
+      if(submitting||dtReported) return;
+      var wDiff=window.outerWidth-window.innerWidth, hDiff=window.outerHeight-window.innerHeight;
+      if(wDiff>200 || hDiff>200){ dtReported=true; report('devtools','developer tools appear to be open'); }
+    }, 1500);
+  }
   // Require fullscreen
   if(d.fullscreen==='1'){
     var goFs = function(){ var el=document.documentElement; (el.requestFullscreen||el.webkitRequestFullscreen||function(){}).call(el); };
