@@ -17,7 +17,20 @@ $n = 0;
   </p>
 </div>
 
-<form method="post" action="<?= e(url('/q/'.$quiz['share_code'])) ?>" id="take-form" enctype="multipart/form-data">
+<form method="post" action="<?= e(url('/q/'.$quiz['share_code'])) ?>" id="take-form" enctype="multipart/form-data"
+      data-code="<?= e($quiz['share_code']) ?>"
+      data-attempt="<?= (int)($attemptId ?? 0) ?>"
+      data-base="<?= e(url('')) ?>"
+      <?php if ($isExam): ?>
+      data-detect-tab="<?= (int)$quiz['detect_tab_switch'] ?>"
+      data-fullscreen="<?= (int)$quiz['require_fullscreen'] ?>"
+      data-anti-paste="<?= (int)$quiz['anti_paste'] ?>"
+      data-anti-rightclick="<?= (int)$quiz['anti_rightclick'] ?>"
+      data-detect-devtools="<?= (int)$quiz['detect_devtools'] ?>"
+      data-violation-limit="<?= (int)$quiz['violation_limit'] ?>"
+      data-camera="<?= (int)$quiz['camera_proctor'] ?>"
+      data-snap-interval="<?= (int)$quiz['proctor_snapshot_interval'] ?>"
+      <?php endif; ?>>
   <?php if ($askName || $askEmail): ?>
     <div class="qf-card qf-card-pad mb-4">
       <?php if ($askName): ?>
@@ -88,11 +101,18 @@ $n = 0;
     var missing=null;
     form.querySelectorAll('[data-required="1"]').forEach(function(block){
       if(missing) return;
-      var inputs=block.querySelectorAll('input,select,textarea');
+      // data-required may be on a WRAPPER (radios/checkboxes) OR directly on
+      // the input/select/textarea itself (dropdown, text, number, textarea…).
+      // Handle both: if the marked element is itself a field, check it;
+      // otherwise check its descendant fields.
+      var tag = block.tagName.toLowerCase();
+      var inputs = (tag==='input'||tag==='select'||tag==='textarea')
+        ? [block]
+        : Array.prototype.slice.call(block.querySelectorAll('input,select,textarea'));
       var ok=false;
       inputs.forEach(function(i){
-        if((i.type==='radio'||i.type==='checkbox')){ if(i.checked) ok=true; }
-        else if(i.value && i.value.trim()!=='') ok=true;
+        if(i.type==='radio'||i.type==='checkbox'){ if(i.checked) ok=true; }
+        else if(i.value && String(i.value).trim()!=='') ok=true;
       });
       if(!ok) missing=block;
     });
@@ -117,3 +137,105 @@ $n = 0;
   <?php endif; ?>
 })();
 </script>
+
+<?php if ($isExam && ($quiz['detect_tab_switch'] || $quiz['require_fullscreen'] || $quiz['anti_paste'] || $quiz['anti_rightclick'] || $quiz['camera_proctor'])): ?>
+<!-- Anti-cheat enforcement -->
+<div id="ac-banner" class="hidden fixed top-0 inset-x-0 z-50 bg-red-600 text-white text-sm text-center py-2 px-4"></div>
+<?php if ($quiz['camera_proctor']): ?>
+<div id="cam-wrap" class="fixed bottom-3 right-3 z-40 bg-black rounded-lg overflow-hidden shadow-lg" style="width:150px">
+  <video id="cam" autoplay muted playsinline class="w-full block"></video>
+  <div class="text-[10px] text-white text-center bg-black/70 py-0.5">● Proctoring</div>
+</div>
+<canvas id="cam-canvas" class="hidden"></canvas>
+<?php endif; ?>
+<script>
+(function(){
+  var form = document.getElementById('take-form');
+  var d = form.dataset;
+  var base = d.base || '';
+  var code = d.code, attempt = d.attempt;
+  var limit = parseInt(d.violationLimit||'0',10);
+  var vcount = 0, submitting = false;
+  var banner = document.getElementById('ac-banner');
+
+  function markSubmitting(){ // mirror the submit overlay used by the main script
+    submitting = true;
+    var ov=document.getElementById('submitting'); if(ov) ov.classList.remove('hidden');
+  }
+  function showBanner(msg){ banner.textContent=msg; banner.classList.remove('hidden'); setTimeout(function(){banner.classList.add('hidden');},4000); }
+
+  function report(type, details){
+    try {
+      fetch(base + '/q/' + code + '/violation', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({attempt_id: attempt, type: type, details: details||''})
+      }).then(function(r){return r.json();}).then(function(j){
+        if(!j || !j.ok) return;
+        vcount = j.count;
+        var extra = j.limit>0 ? ' ('+j.count+'/'+j.limit+')' : '';
+        showBanner('⚠ Integrity warning: ' + type.replace('_',' ') + extra);
+        if(j.auto_submit && !submitting){
+          markSubmitting();
+          alert('Too many integrity violations — your quiz will be submitted now.');
+          form.submit();
+        }
+      }).catch(function(){});
+    } catch(e){}
+  }
+  // let the main submit handler set submitting; detect it via the overlay
+  form.addEventListener('submit', function(){ submitting = true; });
+
+  // Tab / window switching
+  if(d.detectTab==='1'){
+    document.addEventListener('visibilitychange', function(){ if(document.hidden && !submitting) report('tab_switch','left the tab'); });
+    window.addEventListener('blur', function(){ if(!submitting) report('window_blur','window lost focus'); });
+  }
+  // Block paste / copy / cut
+  if(d.antiPaste==='1'){
+    ['paste','copy','cut'].forEach(function(ev){
+      document.addEventListener(ev, function(e){ if(!submitting){ e.preventDefault(); report(ev,'blocked '+ev); } });
+    });
+  }
+  // Block right-click
+  if(d.antiRightclick==='1'){
+    document.addEventListener('contextmenu', function(e){ e.preventDefault(); if(!submitting) report('rightclick','right-click blocked'); });
+  }
+  // Require fullscreen
+  if(d.fullscreen==='1'){
+    var goFs = function(){ var el=document.documentElement; (el.requestFullscreen||el.webkitRequestFullscreen||function(){}).call(el); };
+    // Prompt to enter fullscreen on first interaction
+    var fsBtn = document.createElement('div');
+    fsBtn.className='fixed inset-0 z-50 bg-slate-900/80 flex items-center justify-center p-4';
+    fsBtn.innerHTML='<div class="qf-card qf-card-pad text-center" style="max-width:22rem"><p class="font-semibold mb-2">Fullscreen required</p><p class="text-sm text-slate-500 mb-4">This exam must be taken in fullscreen. Click below to begin.</p><button type="button" class="qf-btn qf-btn-primary">Enter fullscreen &amp; start</button></div>';
+    document.body.appendChild(fsBtn);
+    fsBtn.querySelector('button').addEventListener('click', function(){ goFs(); fsBtn.remove(); });
+    document.addEventListener('fullscreenchange', function(){ if(!document.fullscreenElement && !submitting) report('fullscreen_exit','left fullscreen'); });
+  }
+
+  <?php if ($quiz['camera_proctor']): ?>
+  // Camera proctoring: request webcam, show preview, capture periodic snapshots
+  (function(){
+    var video=document.getElementById('cam'), canvas=document.getElementById('cam-canvas');
+    var interval = Math.max(15, parseInt(d.snapInterval||'30',10)) * 1000;
+    navigator.mediaDevices && navigator.mediaDevices.getUserMedia({video:{width:320,height:240},audio:false})
+      .then(function(stream){
+        video.srcObject = stream;
+        function snap(kind){
+          if(!video.videoWidth) return;
+          canvas.width=320; canvas.height=240;
+          canvas.getContext('2d').drawImage(video,0,0,320,240);
+          var data = canvas.toDataURL('image/jpeg', 0.5);
+          fetch(base + '/q/' + code + '/proctor', {method:'POST',headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({attempt_id:attempt, image:data, kind:kind})}).catch(function(){});
+        }
+        setTimeout(function(){snap('baseline');}, 2000);
+        setInterval(function(){ if(!submitting) snap('periodic'); }, interval);
+      })
+      .catch(function(){
+        showBanner('⚠ This exam requires camera access. Please allow your webcam.');
+      });
+  })();
+  <?php endif; ?>
+})();
+</script>
+<?php endif; ?>

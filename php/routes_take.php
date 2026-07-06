@@ -24,10 +24,12 @@ route('GET', '/q/{code}', function ($p) {
         return;
     }
     $questions = quiz_questions((int)$quiz['id']);
+    $attemptId = get_or_create_draft($quiz);
     page('student_take', [
         'title' => $quiz['title'],
         'quiz' => $quiz,
         'questions' => $questions,
+        'attemptId' => $attemptId,
         'bare' => true,
     ]);
 });
@@ -69,11 +71,12 @@ route('POST', '/q/{code}', function ($p) {
 
     $questions = quiz_questions($qid);
     $now = now_ts();
-    $attemptId = DB::insert(
-        "INSERT INTO attempts(quiz_id, student_name, student_email, started_at, submitted_at, ip_address)
-         VALUES(?,?,?,?,?,?)",
-        [$qid, $name, $email, $now, $now, $_SERVER['REMOTE_ADDR'] ?? '']
-    );
+    // Finalize the existing draft (holds any mid-quiz violations/snapshots),
+    // or create one if somehow missing.
+    $attemptId = get_or_create_draft($quiz);
+    DB::run("UPDATE attempts SET student_name=?, student_email=?, submitted_at=?, ip_address=? WHERE id=?",
+        [$name, $email, $now, $_SERVER['REMOTE_ADDR'] ?? '', $attemptId]);
+    DB::run("DELETE FROM answers WHERE attempt_id=?", [$attemptId]); // clear partials
 
     $total = 0.0; $max = 0.0; $needsGrading = 0;
     $rows = [];
@@ -111,8 +114,73 @@ route('POST', '/q/{code}', function ($p) {
     $attemptRow = DB::one("SELECT * FROM attempts WHERE id=?", [$attemptId]);
     issue_certificate_if_passed($quiz, $attemptRow);
 
+    unset($_SESSION['draft_'.$qid]);              // next attempt starts fresh
     $_SESSION['result_'.$qid] = $attemptId;
     redirect('/q/'.$quiz['share_code'].'/done');
+});
+
+// ── Anti-cheat: log a violation (public; CSRF-exempt via /q/ prefix) ──────
+route('POST', '/q/{code}/violation', function ($p) {
+    header('Content-Type: application/json');
+    $quiz = DB::one("SELECT * FROM quizzes WHERE share_code=?", [$p['code']]);
+    if (!$quiz) { echo json_encode(['ok'=>false]); exit; }
+    $body = json_decode(file_get_contents('php://input'), true) ?: [];
+    $attemptId = (int)($body['attempt_id'] ?? 0);
+    // Only accept for an in-progress attempt on this quiz
+    $a = DB::one("SELECT id FROM attempts WHERE id=? AND quiz_id=? AND submitted_at IS NULL", [$attemptId, $quiz['id']]);
+    if (!$a) { echo json_encode(['ok'=>false]); exit; }
+    $allowed = ['tab_switch','window_blur','paste','copy','cut','rightclick','fullscreen_exit','devtools','other'];
+    $type = in_array($body['type'] ?? '', $allowed, true) ? $body['type'] : 'other';
+    $details = mb_substr((string)($body['details'] ?? ''), 0, 300);
+    // Cap total violations per attempt (anti-flood)
+    $count = (int) DB::scalar("SELECT COUNT(*) FROM violations WHERE attempt_id=?", [$attemptId]);
+    if ($count < 500) {
+        DB::insert("INSERT INTO violations(attempt_id,type,details,created_at) VALUES(?,?,?,?)", [$attemptId,$type,$details,now_ts()]);
+        $count++;
+    }
+    $limit = (int)$quiz['violation_limit'];
+    echo json_encode(['ok'=>true, 'count'=>$count, 'limit'=>$limit, 'auto_submit'=>($limit>0 && $count>=$limit)]);
+    exit;
+});
+
+// ── Camera proctoring: store a snapshot (public; CSRF-exempt) ─────────────
+route('POST', '/q/{code}/proctor', function ($p) {
+    header('Content-Type: application/json');
+    $quiz = DB::one("SELECT * FROM quizzes WHERE share_code=?", [$p['code']]);
+    if (!$quiz || !$quiz['camera_proctor']) { echo json_encode(['ok'=>false]); exit; }
+    $body = json_decode(file_get_contents('php://input'), true) ?: [];
+    $attemptId = (int)($body['attempt_id'] ?? 0);
+    $a = DB::one("SELECT id FROM attempts WHERE id=? AND quiz_id=? AND submitted_at IS NULL", [$attemptId, $quiz['id']]);
+    if (!$a) { echo json_encode(['ok'=>false]); exit; }
+    // Decode the data-URL JPEG, validate the magic bytes
+    $img = (string)($body['image'] ?? '');
+    if (strpos($img, ',') !== false) $img = substr($img, strpos($img, ',') + 1);
+    $raw = base64_decode($img, true);
+    if ($raw === false || strncmp($raw, "\xff\xd8\xff", 3) !== 0) { echo json_encode(['ok'=>false]); exit; }
+    if (strlen($raw) > 200*1024) { echo json_encode(['ok'=>false]); exit; }
+    $cnt = (int) DB::scalar("SELECT COUNT(*) FROM proctor_snapshots WHERE attempt_id=?", [$attemptId]);
+    if ($cnt >= 400) { echo json_encode(['ok'=>false]); exit; }
+    $kind = in_array($body['kind'] ?? '', ['periodic','baseline','no_face','multiple_faces'], true) ? $body['kind'] : 'periodic';
+    DB::insert("INSERT INTO proctor_snapshots(attempt_id,captured_at,kind,notes,image_bytes) VALUES(?,?,?,?,?)",
+        [$attemptId, now_ts(), $kind, '', base64_encode($raw)]);
+    echo json_encode(['ok'=>true]);
+    exit;
+});
+
+// ── Serve a proctor snapshot (admin, ownership-checked) ───────────────────
+route('GET', '/admin/snapshots/{sid}.jpg', function ($p) {
+    require_login();
+    $row = DB::one(
+        "SELECT s.image_bytes, q.user_id FROM proctor_snapshots s
+         JOIN attempts a ON a.id=s.attempt_id JOIN quizzes q ON q.id=a.quiz_id WHERE s.id=?",
+        [(int)$p['sid']]
+    );
+    if (!$row || (int)$row['user_id'] !== (int)$_SESSION['uid']) { http_response_code(404); exit; }
+    $raw = base64_decode((string)$row['image_bytes'], true);
+    if ($raw === false || strncmp($raw, "\xff\xd8\xff", 3) !== 0) { http_response_code(404); exit; }
+    header('Content-Type: image/jpeg');
+    header('Content-Length: '.strlen($raw));
+    echo $raw; exit;
 });
 
 // ── Student result page ───────────────────────────────────────────────────
@@ -227,7 +295,9 @@ route('GET', '/admin/quizzes/{id}/attempts/{aid}', function ($p) {
         $a['value'] = json_col($a['answer'], null);
         $answers[(int)$a['question_id']] = $a;
     }
-    page('admin_attempt', ['title'=>'Attempt · '.($attempt['student_name']?:'Anonymous'), 'quiz'=>$quiz, 'attempt'=>$attempt, 'questions'=>$questions, 'answers'=>$answers]);
+    $violations = DB::all("SELECT * FROM violations WHERE attempt_id=? ORDER BY created_at", [$attempt['id']]);
+    $snapshots = DB::all("SELECT id,captured_at,kind FROM proctor_snapshots WHERE attempt_id=? ORDER BY captured_at", [$attempt['id']]);
+    page('admin_attempt', ['title'=>'Attempt · '.($attempt['student_name']?:'Anonymous'), 'quiz'=>$quiz, 'attempt'=>$attempt, 'questions'=>$questions, 'answers'=>$answers, 'violations'=>$violations, 'snapshots'=>$snapshots]);
 });
 
 route('POST', '/admin/quizzes/{id}/attempts/{aid}', function ($p) {

@@ -17,6 +17,32 @@ function opt_label_php(array $options, $idx) {
   <?php if ($attempt['student_email']): ?> &middot; <?= e($attempt['student_email']) ?><?php endif; ?>
 </p>
 
+<?php if (!empty($violations)): ?>
+  <div class="qf-card qf-card-pad mb-4" style="border-color:#fecaca;background:#fef2f2">
+    <p class="font-semibold text-red-800 mb-2">⚠ <?= count($violations) ?> integrity violation(s)</p>
+    <ul class="text-sm text-red-900 space-y-1 max-h-48 overflow-auto">
+      <?php foreach ($violations as $v): ?>
+        <li><span class="font-mono text-xs text-red-500"><?= e(fmt_ts($v['created_at'])) ?></span> · <b><?= e(str_replace('_',' ',$v['type'])) ?></b><?php if($v['details']): ?> · <?= e($v['details']) ?><?php endif; ?></li>
+      <?php endforeach; ?>
+    </ul>
+  </div>
+<?php endif; ?>
+
+<?php if (!empty($snapshots)): ?>
+  <details class="qf-card qf-card-pad mb-4" open style="border-color:#e9d5ff">
+    <summary class="font-semibold cursor-pointer">📷 <?= count($snapshots) ?> proctoring snapshot(s)</summary>
+    <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 mt-3">
+      <?php foreach ($snapshots as $s): ?>
+        <a href="<?= e(url('/admin/snapshots/'.$s['id'].'.jpg')) ?>" target="_blank" rel="noopener" title="<?= e($s['kind'].' · '.fmt_ts($s['captured_at'])) ?>">
+          <img src="<?= e(url('/admin/snapshots/'.$s['id'].'.jpg')) ?>" loading="lazy" decoding="async" alt="snapshot"
+               class="rounded border <?= in_array($s['kind'],['no_face','multiple_faces'],true)?'border-red-400':'border-slate-200' ?> w-full aspect-square object-cover bg-slate-100" />
+          <p class="text-[10px] text-slate-500 mt-1 truncate"><?= e(fmt_ts($s['captured_at'])) ?></p>
+        </a>
+      <?php endforeach; ?>
+    </div>
+  </details>
+<?php endif; ?>
+
 <form method="post" action="<?= e(url('/admin/quizzes/'.$quiz['id'].'/attempts/'.$attempt['id'])) ?>" class="space-y-3">
   <?= csrf_field() ?>
   <?php $n=0; foreach ($questions as $q): if($q['type']==='section_break') continue; $n++; $a=$answers[$q['id']]??null; ?>

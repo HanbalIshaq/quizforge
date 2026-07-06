@@ -226,6 +226,25 @@ function parse_submitted_answer(string $type, $raw)
 }
 
 /**
+ * Get (or create) the in-progress draft attempt for this browser + quiz.
+ * Lets us attach anti-cheat violations and camera snapshots to a record
+ * before the student submits. Finalized on submit.
+ */
+function get_or_create_draft(array $quiz): int
+{
+    $key = 'draft_' . $quiz['id'];
+    $did = (int)($_SESSION[$key] ?? 0);
+    if ($did) {
+        $row = DB::one("SELECT id FROM attempts WHERE id=? AND quiz_id=? AND submitted_at IS NULL", [$did, $quiz['id']]);
+        if ($row) return $did;
+    }
+    $id = DB::insert("INSERT INTO attempts(quiz_id, student_name, started_at, ip_address) VALUES(?,?,?,?)",
+        [$quiz['id'], '', now_ts(), $_SERVER['REMOTE_ADDR'] ?? '']);
+    $_SESSION[$key] = $id;
+    return $id;
+}
+
+/**
  * Handle a form file_upload field securely. Returns a public URL string on
  * success, or null. Hardened (ported from the Python audit fixes): extension
  * allowlist, magic-byte content check, per-file size cap. Rejects HTML/SVG/JS/
