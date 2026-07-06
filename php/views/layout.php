@@ -46,7 +46,7 @@ $pageTitle = $title ?? (app_name() . ' — ' . app_tagline());
         <?php else: ?>
           <a href="<?= e(url('/login')) ?>" class="hover:text-brand-700">Sign in</a>
           <?php if ($feat['feature_registration']): ?>
-            <a href="<?= e(url('/register')) ?>" class="px-3 py-1.5 bg-brand-600 text-white rounded hover:bg-brand-700 inline-flex items-center min-h-[36px]">Get started — free</a>
+            <a href="<?= e(url('/register')) ?>" class="qf-btn qf-btn-primary qf-btn-sm">Get started — free</a>
           <?php endif; ?>
         <?php endif; ?>
       </div>
@@ -78,12 +78,9 @@ $pageTitle = $title ?? (app_name() . ' — ' . app_tagline());
 
   <main id="main-content" class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-4 sm:py-6">
     <?php if ($flashes): ?>
-      <div class="mb-4 space-y-2" role="status" aria-live="polite">
+      <div class="mb-4 space-y-2 fade-in" role="status" aria-live="polite">
         <?php foreach ($flashes as $f): ?>
-          <div class="px-4 py-2 rounded border text-sm
-            <?php if ($f['cat']==='error'): ?>bg-red-50 border-red-200 text-red-800
-            <?php elseif ($f['cat']==='success'): ?>bg-emerald-50 border-emerald-200 text-emerald-800
-            <?php else: ?>bg-slate-100 border-slate-200<?php endif; ?>">
+          <div class="qf-alert <?= $f['cat']==='error' ? 'qf-alert-error' : ($f['cat']==='success' ? 'qf-alert-success' : 'qf-alert-info') ?>">
             <?= e($f['msg']) ?>
           </div>
         <?php endforeach; ?>

@@ -1,34 +1,74 @@
-<?php /** Sign-up form. Expects $form (may hold prior name/email). */ ?>
-<div class="max-w-md mx-auto mt-4 sm:mt-8 bg-white border border-slate-200 rounded-xl p-5 sm:p-7 shadow-sm">
-  <h1 class="text-2xl font-bold mb-1">Create an account</h1>
-  <p class="text-sm text-slate-500 mb-5">Free forever for individual use. No credit card required.</p>
+<?php /** Sign-up — split-screen welcome layout. Expects $form. */ ?>
+<div class="qf-auth max-w-4xl mx-auto mt-2 sm:mt-6">
+  <!-- Brand panel (desktop only) -->
+  <div class="qf-auth-brand">
+    <div class="flex items-center gap-2 mb-8">
+      <span class="inline-block w-9 h-9 rounded-lg bg-white/20 grid place-items-center font-bold text-lg"><?= e(mb_substr(app_name(),0,1)) ?></span>
+      <span class="text-xl font-bold"><?= e(app_name()) ?></span>
+    </div>
+    <h2 class="text-3xl font-bold leading-tight mb-3">Create quizzes in minutes.</h2>
+    <p class="text-white/80 text-sm mb-2">Free forever for individual use. No credit card. Set up in under a minute.</p>
+    <div class="qf-auth-feature">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+      <p class="text-sm text-white/90">Build exams, polls, surveys &amp; forms</p>
+    </div>
+    <div class="qf-auth-feature">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+      <p class="text-sm text-white/90">Share a link or run a live session</p>
+    </div>
+    <div class="qf-auth-feature">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+      <p class="text-sm text-white/90">Instant auto-grading &amp; rich results</p>
+    </div>
+  </div>
 
-  <form method="post" action="<?= e(url('/register')) ?>" class="space-y-4" novalidate>
-    <?= csrf_field() ?>
-    <div>
-      <label for="reg-name" class="block text-sm font-medium mb-1.5">Your name</label>
-      <input id="reg-name" type="text" name="name" value="<?= e($form['name'] ?? '') ?>"
-             autocomplete="name" autocapitalize="words" placeholder="Jane Doe"
-             class="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
-    </div>
-    <div>
-      <label for="reg-email" class="block text-sm font-medium mb-1.5">Email</label>
-      <input id="reg-email" type="email" name="email" value="<?= e($form['email'] ?? '') ?>"
-             required autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false"
-             placeholder="you@example.com"
-             class="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
-    </div>
-    <div>
-      <label for="reg-password" class="block text-sm font-medium mb-1.5">Password</label>
-      <input id="reg-password" type="password" name="password" required minlength="6" autocomplete="new-password"
-             aria-describedby="reg-password-hint"
-             class="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
-      <p id="reg-password-hint" class="text-xs text-slate-500 mt-1">At least 6 characters.</p>
-    </div>
-    <button type="submit" class="w-full py-2.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">Create account</button>
-  </form>
+  <!-- Form panel -->
+  <div class="qf-auth-form">
+    <div class="w-full max-w-sm mx-auto">
+      <h1 class="text-2xl font-bold mb-1">Create your account</h1>
+      <p class="text-sm text-slate-500 mb-6">It's free — no credit card required.</p>
 
-  <p class="mt-5 text-sm text-slate-600 text-center">
-    Already registered? <a href="<?= e(url('/login')) ?>" class="text-brand-700 hover:underline font-medium">Sign in</a>
-  </p>
+      <form method="post" action="<?= e(url('/register')) ?>" novalidate>
+        <?= csrf_field() ?>
+        <div class="qf-field">
+          <label for="reg-name" class="qf-label">Your name</label>
+          <input id="reg-name" class="qf-input" type="text" name="name" value="<?= e($form['name'] ?? '') ?>"
+                 autocomplete="name" autocapitalize="words" placeholder="Jane Doe" />
+        </div>
+        <div class="qf-field">
+          <label for="reg-email" class="qf-label">Email</label>
+          <input id="reg-email" class="qf-input" type="email" name="email" value="<?= e($form['email'] ?? '') ?>"
+                 required autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false"
+                 placeholder="you@example.com" />
+        </div>
+        <div class="qf-field">
+          <label for="reg-password" class="qf-label">Password</label>
+          <div class="qf-pw-wrap">
+            <input id="reg-password" class="qf-input" type="password" name="password" required minlength="6"
+                   autocomplete="new-password" aria-describedby="reg-password-hint" placeholder="At least 6 characters" />
+            <button type="button" class="qf-pw-toggle" data-pw-toggle="reg-password" aria-label="Show password">Show</button>
+          </div>
+          <p id="reg-password-hint" class="qf-hint">Use at least 6 characters.</p>
+        </div>
+        <button type="submit" class="qf-btn qf-btn-primary qf-btn-lg qf-btn-block">Create account</button>
+      </form>
+
+      <p class="mt-6 text-sm text-slate-600 text-center">
+        Already registered? <a href="<?= e(url('/login')) ?>" class="text-brand-700 hover:underline font-semibold">Sign in</a>
+      </p>
+    </div>
+  </div>
 </div>
+
+<script>
+document.querySelectorAll('[data-pw-toggle]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var inp = document.getElementById(btn.getAttribute('data-pw-toggle'));
+    if(!inp) return;
+    var show = inp.type === 'password';
+    inp.type = show ? 'text' : 'password';
+    btn.textContent = show ? 'Hide' : 'Show';
+    btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+  });
+});
+</script>

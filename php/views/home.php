@@ -11,10 +11,11 @@
   </p>
   <div class="flex flex-wrap justify-center gap-3">
     <?php if ($feat['feature_registration']): ?>
-      <a href="<?= e(url('/register')) ?>" class="px-6 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">Start free — no credit card</a>
+      <a href="<?= e(url('/register')) ?>" class="qf-btn qf-btn-primary qf-btn-lg">Start free — no credit card</a>
     <?php endif; ?>
-    <a href="<?= e(url('/join')) ?>" class="px-6 py-3 bg-white border border-slate-300 rounded-lg hover:bg-slate-100">I have a quiz code</a>
+    <a href="<?= e(url('/join')) ?>" class="qf-btn qf-btn-secondary qf-btn-lg">I have a quiz code</a>
   </div>
+  <p class="text-xs text-slate-500 mt-4">Free forever for personal use · Self-hostable · Your data, your server.</p>
 </section>
 
 <section class="mb-12">
@@ -29,8 +30,8 @@
       ['📊', 'Rich results', 'Per-question breakdown, bar charts, NPS, word clouds, CSV/Excel export.'],
     ];
     foreach ($feats as [$icon, $t, $d]): ?>
-      <div class="bg-white border border-slate-200 rounded-lg p-5 hover:border-brand-300 transition">
-        <div class="text-2xl mb-1" aria-hidden="true"><?= $icon ?></div>
+      <div class="qf-card qf-card-pad qf-card-hover">
+        <div class="text-2xl mb-2" aria-hidden="true"><?= $icon ?></div>
         <h3 class="font-semibold text-slate-900 mb-1"><?= e($t) ?></h3>
         <p class="text-sm text-slate-600"><?= e($d) ?></p>
       </div>
