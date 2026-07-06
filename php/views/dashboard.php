@@ -4,10 +4,31 @@ $km = kind_meta();
 $accentBg = ['brand'=>'bg-brand-600','amber'=>'bg-amber-500','emerald'=>'bg-emerald-600','purple'=>'bg-purple-600'];
 $accentText = ['brand'=>'text-brand-700','amber'=>'text-amber-600','emerald'=>'text-emerald-700','purple'=>'text-purple-700'];
 ?>
-<div class="mb-6">
-  <h1 class="text-2xl sm:text-3xl font-bold">Welcome back, <?= e($u['name'] ?: explode('@',$u['email'])[0]) ?></h1>
-  <p class="text-sm text-slate-500 mt-1">Create a new assessment, or manage what you've built.</p>
+<div class="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+  <div>
+    <h1 class="text-2xl sm:text-3xl font-bold">Welcome back, <?= e($u['name'] ?: explode('@',$u['email'])[0]) ?></h1>
+    <p class="text-sm text-slate-500 mt-1">Create a new assessment, or manage what you've built.</p>
+  </div>
+  <form method="post" action="<?= e(url('/admin/seed-demo')) ?>" onsubmit="return confirm('Load a set of demo quizzes (exam, poll, survey, form) with sample responses? You can delete them anytime.')">
+    <?= csrf_field() ?>
+    <button class="qf-btn qf-btn-secondary qf-btn-sm">✨ Load demo data</button>
+  </form>
 </div>
+
+<?php if (($counts['all'] ?? 0) === 0): ?>
+  <div class="qf-card qf-card-pad mb-6" style="background:linear-gradient(135deg,#eef2ff,#faf5ff);border-color:#e0e7ff">
+    <div class="flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+      <div>
+        <p class="font-semibold text-slate-900">👋 New here? Load demo data to explore instantly.</p>
+        <p class="text-sm text-slate-600 mt-0.5">Creates a demo exam, poll, survey and form — each with sample responses so every dashboard is populated.</p>
+      </div>
+      <form method="post" action="<?= e(url('/admin/seed-demo')) ?>" class="shrink-0">
+        <?= csrf_field() ?>
+        <button class="qf-btn qf-btn-primary">✨ Load demo data</button>
+      </form>
+    </div>
+  </div>
+<?php endif; ?>
 
 <!-- Content-type cards -->
 <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

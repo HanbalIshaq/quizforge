@@ -34,6 +34,15 @@ route('GET', '/admin', function () {
     ]);
 });
 
+// ── Seed demo data (one-click sample quizzes + responses) ─────────────────
+route('POST', '/admin/seed-demo', function () {
+    require_login();
+    require_once __DIR__ . '/includes/seed.php';
+    $summary = seed_demo_data((int)$_SESSION['uid']);
+    flash("Loaded {$summary['quizzes']} demo quizzes with {$summary['submissions']} sample responses. Explore them below.", 'success');
+    redirect('/admin');
+});
+
 // ── Create quiz ──────────────────────────────────────────────────────────
 route('POST', '/admin/quizzes/new', function () {
     require_login();
