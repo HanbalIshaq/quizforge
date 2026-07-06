@@ -11,7 +11,9 @@ $passed = $quiz['pass_mark'] ? ($pct >= (float)$quiz['pass_mark']) : null;
   <?php if (!$isExam): ?>
     <p class="mt-4 text-emerald-700"><?= $quiz['kind']==='survey' ? 'Your anonymous response was recorded.' : 'Your response was recorded.' ?></p>
   <?php elseif ($attempt['needs_grading']): ?>
-    <p class="mt-4 text-amber-700">Your answers are pending manual review.</p>
+    <div class="text-4xl font-bold mt-4 text-brand-700"><?= number_format($pct) ?>%</div>
+    <p class="text-slate-600 mt-1"><?= rtrim(rtrim(number_format((float)$attempt['score'],1),'0'),'.') ?> / <?= number_format((float)$attempt['max_score']) ?> points so far</p>
+    <p class="mt-2 inline-block px-3 py-1 rounded bg-amber-100 text-amber-800 text-sm">Provisional — some written answers await manual review</p>
   <?php else: ?>
     <div class="text-5xl font-bold mt-4 <?= $passed===true?'text-emerald-600':($passed===false?'text-red-600':'text-brand-700') ?>"><?= number_format($pct) ?>%</div>
     <p class="text-slate-600 mt-1"><?= rtrim(rtrim(number_format((float)$attempt['score'],1),'0'),'.') ?> / <?= number_format((float)$attempt['max_score']) ?> points</p>
@@ -30,8 +32,8 @@ $passed = $quiz['pass_mark'] ? ($pct >= (float)$quiz['pass_mark']) : null;
   </div>
 <?php endif; ?>
 
-<?php if ($isExam && $quiz['show_correct_answers'] && !$attempt['needs_grading']): ?>
-  <h2 class="font-semibold mb-3">Review</h2>
+<?php if ($isExam && $quiz['show_correct_answers']): ?>
+  <h2 class="font-semibold mb-3">Review — correct answers</h2>
   <div class="space-y-3">
     <?php $n=0; foreach ($questions as $q): if($q['type']==='section_break') continue; $n++; $a=$answers[$q['id']]??null;
       $correct = array_map('intval',(array)$q['correct_answers']); ?>
