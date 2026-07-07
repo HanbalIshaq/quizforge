@@ -3,6 +3,7 @@
      data-poll="<?= e(url('/admin/live/' . $session['id'] . '/host.json')) ?>"
      data-next="<?= e(url('/admin/live/' . $session['id'] . '/next')) ?>"
      data-end="<?= e(url('/admin/live/' . $session['id'] . '/end')) ?>"
+     data-reveal="<?= e(url('/admin/live/' . $session['id'] . '/reveal')) ?>"
      data-total="<?= (int)$total ?>">
 
   <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
@@ -10,7 +11,11 @@
       <a href="<?= e(url('/admin/quizzes/' . $quiz['id'] . '/edit')) ?>" class="text-sm text-slate-400 hover:text-brand-700">← <?= e($quiz['title']) ?></a>
       <h1 class="text-2xl font-bold">Live session</h1>
     </div>
-    <div class="flex gap-2">
+    <div class="flex flex-wrap items-center gap-3">
+      <label class="flex items-center gap-2 text-sm text-slate-600 select-none cursor-pointer" title="When on, each player sees whether they were right or wrong (and their points) right after answering. When off, they only find out on the leaderboard.">
+        <input type="checkbox" id="reveal-toggle" <?= (int)$session['reveal_results'] ? 'checked' : '' ?> class="w-4 h-4">
+        <span>Show players right/wrong</span>
+      </label>
       <button id="btn-next" class="qf-btn qf-btn-primary">Start</button>
       <button id="btn-end" class="qf-btn qf-btn-ghost text-red-600">End</button>
     </div>
@@ -63,19 +68,21 @@
 <script>
 (function(){
   var root=document.getElementById('live-host');
-  var pollUrl=root.dataset.poll, nextUrl=root.dataset.next, endUrl=root.dataset.end;
+  var pollUrl=root.dataset.poll, nextUrl=root.dataset.next, endUrl=root.dataset.end, revealUrl=root.dataset.reveal;
   var total=parseInt(root.dataset.total,10)||0;
   var csrf=document.querySelector('meta[name="csrf-token"]').content;
   var btnNext=document.getElementById('btn-next'), btnEnd=document.getElementById('btn-end');
+  var revealToggle=document.getElementById('reveal-toggle');
   var elRoster=document.getElementById('host-roster'), elQ=document.getElementById('host-question'),
       elEnded=document.getElementById('host-ended');
   var status='waiting';
 
-  function post(url){ return fetch(url,{method:'POST',headers:{'X-CSRF-Token':csrf}}).then(function(r){return r.json();}); }
+  function post(url,body){ return fetch(url,{method:'POST',headers:{'X-CSRF-Token':csrf,'Content-Type':'application/x-www-form-urlencoded'},body:body||''}).then(function(r){return r.json();}); }
   function escapeHtml(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 
   btnNext.addEventListener('click',function(){ btnNext.disabled=true; post(nextUrl).then(function(){ btnNext.disabled=false; poll(); }); });
   btnEnd.addEventListener('click',function(){ if(!confirm('End this live session for everyone?'))return; post(endUrl).then(function(){ poll(); }); });
+  if(revealToggle) revealToggle.addEventListener('change',function(){ post(revealUrl,'on='+(revealToggle.checked?'1':'')); });
 
   function renderQuestion(q,answered,dist){
     document.getElementById('hq-n').textContent=q.n;
@@ -116,6 +123,7 @@
       document.getElementById('roster-n').textContent=s.players||0;
       var rl=document.getElementById('roster-list'); rl.innerHTML='';
       (s.roster||[]).forEach(function(n){ var b=document.createElement('span'); b.className='qf-badge'; b.textContent=n; rl.appendChild(b); });
+      if(revealToggle && document.activeElement!==revealToggle && typeof s.reveal!=='undefined') revealToggle.checked=!!s.reveal;
       renderBoard(s.leaderboard);
 
       if(s.status==='waiting'){ show(elRoster); btnNext.textContent='Start'; }

@@ -94,8 +94,9 @@
     fetch(answerUrl,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body})
       .then(function(r){return r.json();})
       .then(function(d){
-        if(d && d.ok){ showResult(d.correct===true, d.award||0); }
-        else { showResult(null, 0); } // couldn't grade (or already answered)
+        // Only reveal right/wrong when the host has that turned on.
+        if(d && d.ok && d.reveal){ showResult(d.correct===true, d.award||0); }
+        else { showResult(null, 0); } // hidden by host, or couldn't grade
         document.getElementById('lq-submit').classList.add('hidden');
         document.getElementById('lq-options').classList.add('hidden');
         document.getElementById('lq-waiting').classList.remove('hidden');
@@ -109,10 +110,10 @@
         fp=document.getElementById('lq-feedback-points');
     if(correct===true){
       fb.textContent='🎉'; ft.textContent='Correct!'; ft.className='text-lg font-bold text-green-600';
-      fp.textContent='+'+award+' points'; fp.className='text-sm font-semibold text-green-600';
+      fp.textContent=ptsLabel(award); fp.className='text-sm font-semibold text-green-600';
     } else if(correct===false){
       fb.textContent='❌'; ft.textContent='Not quite'; ft.className='text-lg font-bold text-red-600';
-      fp.textContent='+0 points'; fp.className='text-sm text-slate-400';
+      fp.textContent=ptsLabel(0); fp.className='text-sm text-slate-400';
     } else {
       fb.textContent='🔒'; ft.textContent='Answer locked in'; ft.className='text-lg font-bold text-slate-700';
       fp.textContent=''; fp.className='text-sm';
@@ -132,6 +133,7 @@
     });
   }
   function escapeHtml(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+  function ptsLabel(n){ n=Math.round(n*100)/100; return '+'+n+' '+(n===1?'point':'points'); }
 
   function poll(){
     fetch(stateUrl,{cache:'no-store'}).then(function(r){return r.json();}).then(function(s){

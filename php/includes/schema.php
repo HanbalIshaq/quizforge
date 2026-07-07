@@ -129,6 +129,7 @@ function create_schema(): void
         join_code VARCHAR(32) UNIQUE NOT NULL,
         status VARCHAR(16) DEFAULT 'waiting',
         current_question_index INT DEFAULT -1,
+        reveal_results INT DEFAULT 1,
         started_at $ts NOT NULL,
         ended_at $ts
     )$sfx";
@@ -277,7 +278,7 @@ function create_schema(): void
  * Current schema version. Bump when adding columns/tables that existing
  * installs need. run_migrations() applies anything missing.
  */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /** Add a column if it's missing (portable across MySQL + SQLite). Returns
  *  true if it was actually added. */
@@ -333,6 +334,9 @@ function run_migrations(): void
             q_index INT NOT NULL, question_id INT NOT NULL, answer TEXT,
             is_correct INT DEFAULT 0, points REAL DEFAULT 0, created_at $ts NOT NULL)$sfx");
     } catch (Throwable $e) {}
+
+    // v4: per-session toggle for revealing right/wrong to players during live.
+    ensure_column('live_sessions', 'reveal_results', 'INT DEFAULT 1');
 
     setting_set('schema_version', (string) SCHEMA_VERSION);
 }

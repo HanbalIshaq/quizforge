@@ -117,6 +117,18 @@ check('roster lists Alice & Bob', in_array('Alice',$hs['roster']??[]) && in_arra
 
 $ps = $p1->json($BASE."/live/play/$sid/state.json");
 check('p1 state=waiting (lobby)', ($ps['status']??'')==='waiting');
+check('reveal defaults to on', (int)($ps['reveal']??0)===1);
+
+// ── Reveal toggle (host option) ─────────────────────────────────────────────
+section('Reveal toggle');
+$admin->postRaw($BASE."/admin/live/$sid/reveal", 'on=', ['X-CSRF-Token: '.$csrf]);
+$rv = json_decode($admin->body, true);
+check('host turned reveal OFF', ($rv['ok']??false) && (int)($rv['reveal']??1)===0);
+$ps = $p1->json($BASE."/live/play/$sid/state.json");
+check('participant sees reveal=0', (int)($ps['reveal']??1)===0);
+$admin->postRaw($BASE."/admin/live/$sid/reveal", 'on=1', ['X-CSRF-Token: '.$csrf]);
+$rv = json_decode($admin->body, true);
+check('host turned reveal back ON', (int)($rv['reveal']??0)===1);
 
 // ── Play through the 3 questions ────────────────────────────────────────────
 $answerKey = [1, 0, 1]; // correct index per question
@@ -137,10 +149,11 @@ foreach ([0,1,2] as $qi) {
     $wrong = ($correct===0) ? 1 : 0;
     $p1->postRaw($BASE."/live/play/$sid/answer", 'answer='.urlencode(json_encode($correct)));
     $r1 = json_decode($p1->body, true);
-    check('Alice correct +1000', ($r1['ok']??false) && ($r1['correct']??false)===true && ($r1['award']??0)===1000);
+    check('Alice correct +1 pt (real points, not 1000)', ($r1['ok']??false) && ($r1['correct']??false)===true && (int)round($r1['award']??0)===1);
+    check('answer response carries reveal flag', (int)($r1['reveal']??-1)===1);
     $p2->postRaw($BASE."/live/play/$sid/answer", 'answer='.urlencode(json_encode($wrong)));
     $r2 = json_decode($p2->body, true);
-    check('Bob wrong +0', ($r2['ok']??false) && ($r2['correct']??true)===false && ($r2['award']??-1)===0);
+    check('Bob wrong +0', ($r2['ok']??false) && ($r2['correct']??true)===false && (int)round($r2['award']??-1)===0);
 
     // Double-answer rejected
     $p1->postRaw($BASE."/live/play/$sid/answer", 'answer='.urlencode(json_encode($correct)));
@@ -159,11 +172,11 @@ $admin->postRaw($BASE."/admin/live/$sid/next", '', ['X-CSRF-Token: '.$csrf]); //
 $hs = $admin->json($BASE."/admin/live/$sid/host.json");
 check('session ended', ($hs['status']??'')==='ended', $hs['status']??'?');
 $board = $hs['leaderboard'] ?? [];
-check('Alice tops leaderboard with 3000', ($board[0]['name']??'')==='Alice' && (int)($board[0]['score']??0)===3000, json_encode($board));
+check('Alice tops leaderboard with 3 pts (3 x 1)', ($board[0]['name']??'')==='Alice' && (int)($board[0]['score']??0)===3, json_encode($board));
 check('Bob has 0', ($board[1]['name']??'')==='Bob' && (int)($board[1]['score']??0)===0);
 
 $ps1 = $p1->json($BASE."/live/play/$sid/state.json");
-check('p1 final state ended, score 3000', ($ps1['status']??'')==='ended' && (int)($ps1['you']['score']??0)===3000);
+check('p1 final state ended, score 3', ($ps1['status']??'')==='ended' && (int)($ps1['you']['score']??0)===3);
 
 // ── Cleanup ─────────────────────────────────────────────────────────────────
 section('Cleanup');

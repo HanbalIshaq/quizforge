@@ -48,6 +48,7 @@ function live_participant_state(array $session, ?array $me): array
         'status'      => $session['status'],
         'index'       => $idx,
         'total'       => count($qs),
+        'reveal'      => (int)($session['reveal_results'] ?? 1),
         'you'         => $me ? ['name' => $me['name'], 'score' => (float)$me['score']] : null,
         'leaderboard' => array_map(fn($r) => ['name' => $r['name'], 'score' => (float)$r['score']], live_leaderboard($sid, 10)),
         'players'     => (int) DB::scalar("SELECT COUNT(*) FROM live_participants WHERE session_id=?", [$sid]),
@@ -135,6 +136,7 @@ route('GET', '/admin/live/{sid}/host.json', function ($p) {
         'status'      => $s['status'],
         'index'       => $idx,
         'total'       => count($qs),
+        'reveal'      => (int)$s['reveal_results'],
         'players'     => (int) DB::scalar("SELECT COUNT(*) FROM live_participants WHERE session_id=?", [$sid]),
         'roster'      => array_map(fn($r) => $r['name'],
             DB::all("SELECT name FROM live_participants WHERE session_id=? ORDER BY joined_at DESC LIMIT 60", [$sid])),
@@ -153,6 +155,15 @@ route('GET', '/admin/live/{sid}/host.json', function ($p) {
         $payload['distribution'] = live_answer_distribution($sid, $idx, $q);
     }
     live_json($payload);
+});
+
+/** Toggle whether players see right/wrong (+ their points) during play. */
+route('POST', '/admin/live/{sid}/reveal', function ($p) {
+    require_login();
+    $s = live_owned_session((int)$p['sid']);
+    $on = (int)!empty($_POST['on']);
+    DB::run("UPDATE live_sessions SET reveal_results=? WHERE id=?", [$on, $s['id']]);
+    live_json(['ok' => true, 'reveal' => $on]);
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -240,14 +251,17 @@ route('POST', '/live/play/{sid}/answer', function ($p) {
     $raw = $_POST['answer'] ?? null;
     if (is_string($raw) && ($decoded = json_decode($raw, true)) !== null) $raw = $decoded;
     [$isCorrect, $pts, $manual] = grade_answer($q, $raw);
-    // Kahoot-style scoring: fixed points for a correct auto-graded answer.
-    $award = ($isCorrect === true) ? 1000 : 0;
+    // Score with the question's real assigned points (incl. partial credit),
+    // not an arbitrary flat number.
+    $award = (float) $pts;
 
     DB::insert(
         "INSERT INTO live_answers(session_id, participant_id, q_index, question_id, answer, is_correct, points, created_at)
          VALUES(?,?,?,?,?,?,?,?)",
         [$sid, $me['id'], $idx, $q['id'], json_encode($raw), $isCorrect === true ? 1 : 0, $award, now_ts()]);
-    if ($award > 0) DB::run("UPDATE live_participants SET score=score+? WHERE id=?", [$award, $me['id']]);
+    if ($award != 0) DB::run("UPDATE live_participants SET score=score+? WHERE id=?", [$award, $me['id']]);
 
-    live_json(['ok' => true, 'correct' => $isCorrect === true, 'award' => $award]);
+    // Only tell the player right/wrong when the host has reveal turned on.
+    live_json(['ok' => true, 'reveal' => (int)$s['reveal_results'],
+        'correct' => $isCorrect === true, 'award' => $award]);
 });
