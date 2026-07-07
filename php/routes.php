@@ -43,7 +43,12 @@ route('POST', '/register', function () {
     }
     login_user((int)$uid);
     flash('Welcome to ' . app_name() . '!', 'success');
-    redirect('/admin');
+    // Honor a pending redirect (e.g. accepting an org invite via its link).
+    $next = $_SESSION['login_next'] ?? url('/admin');
+    unset($_SESSION['login_next']);
+    if (!is_string($next) || strpos($next, '://') !== false) $next = url('/admin'); // local only
+    header('Location: ' . $next);
+    exit;
 });
 
 // ── Login ─────────────────────────────────────────────────────────────────
@@ -136,7 +141,7 @@ route('POST', '/join', function () {
 });
 
 // Steps 2-6 will require these additional route files as they're built:
-foreach (['routes_quiz.php', 'routes_take.php', 'routes_polls.php', 'routes_extras.php', 'routes_orgs.php', 'routes_live.php'] as $rf) {
+foreach (['routes_quiz.php', 'routes_take.php', 'routes_polls.php', 'routes_extras.php', 'routes_orgs.php', 'routes_live.php', 'routes_organizations.php'] as $rf) {
     $p = __DIR__ . '/' . $rf;
     if (is_file($p)) require $p;
 }

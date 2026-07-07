@@ -8,29 +8,30 @@ route('GET', '/admin', function () {
     require_login();
     $uid = (int)$_SESSION['uid'];
     $kindFilter = $_GET['kind'] ?? 'all';
-    if (in_array($kindFilter, ['exam','poll','survey','form'], true)) {
-        $quizzes = DB::all(
-            "SELECT q.*,
-                    (SELECT COUNT(*) FROM questions WHERE quiz_id=q.id) AS n_q,
-                    (SELECT COUNT(*) FROM attempts WHERE quiz_id=q.id AND submitted_at IS NOT NULL) AS n_a
-             FROM quizzes q WHERE user_id=? AND kind=? ORDER BY updated_at DESC",
-            [$uid, $kindFilter]
-        );
-    } else {
-        $quizzes = DB::all(
-            "SELECT q.*,
-                    (SELECT COUNT(*) FROM questions WHERE quiz_id=q.id) AS n_q,
-                    (SELECT COUNT(*) FROM attempts WHERE quiz_id=q.id AND submitted_at IS NOT NULL) AS n_a
-             FROM quizzes q WHERE user_id=? ORDER BY updated_at DESC",
-            [$uid]
-        );
-    }
+    $org = active_org();
+    // Scope: an active org shows that org's quizzes (shared across members);
+    // otherwise the user's personal quizzes (org_id IS NULL).
+    if ($org) { $scopeSql = "org_id=?"; $scopeArgs = [(int)$org['id']]; }
+    else       { $scopeSql = "user_id=? AND org_id IS NULL"; $scopeArgs = [$uid]; }
+
+    $sql = "SELECT q.*, u.name AS owner_name,
+                   (SELECT COUNT(*) FROM questions WHERE quiz_id=q.id) AS n_q,
+                   (SELECT COUNT(*) FROM attempts WHERE quiz_id=q.id AND submitted_at IS NOT NULL) AS n_a
+            FROM quizzes q LEFT JOIN users u ON u.id=q.user_id
+            WHERE $scopeSql";
+    $args = $scopeArgs;
+    if (in_array($kindFilter, ['exam','poll','survey','form'], true)) { $sql .= " AND kind=?"; $args[] = $kindFilter; }
+    $sql .= " ORDER BY updated_at DESC";
+    $quizzes = DB::all($sql, $args);
+
     page('dashboard', [
         'title' => 'Dashboard · ' . app_name(),
         'u' => current_user(),
         'quizzes' => $quizzes,
-        'counts' => quiz_kind_counts($uid),
+        'counts' => quiz_kind_counts_scoped($uid, $org ? (int)$org['id'] : null),
         'kindFilter' => $kindFilter,
+        'activeOrg' => $org,
+        'myOrgs' => user_orgs($uid),
     ]);
 });
 
@@ -51,7 +52,8 @@ route('POST', '/admin/quizzes/new', function () {
     $title = trim($_POST['title'] ?? '');
     if ($title === '') { flash('Please enter a title.', 'error'); redirect('/admin'); }
     if (mb_strlen($title) > 200) $title = mb_substr($title, 0, 200);
-    $r = create_quiz($uid, $kind, $title);
+    $org = active_org();
+    $r = create_quiz($uid, $kind, $title, $org ? (int)$org['id'] : null);
     flash('Created "' . $title . '". Add your ' . ($kind === 'form' ? 'fields' : 'questions') . ' below.', 'success');
     redirect('/admin/quizzes/' . $r['id']);
 });

@@ -27,8 +27,8 @@ function get_owned_quiz(int $quizId): array
     $uid = (int)($_SESSION['uid'] ?? 0);
     $q = DB::one("SELECT * FROM quizzes WHERE id = ?", [$quizId]);
     if (!$q) { http_response_code(404); page('error', ['title'=>'Not found','code'=>404,'message'=>'Quiz not found.']); exit; }
-    if ((int)$q['user_id'] !== $uid) {
-        // Org access comes in Step 6; for now only the owner.
+    // The quiz owner, or an owner/admin of the quiz's organization, may manage it.
+    if (!org_can_edit_quiz($q, $uid)) {
         http_response_code(404); page('error', ['title'=>'Not found','code'=>404,'message'=>'Quiz not found.']); exit;
     }
     return $q;
@@ -37,8 +37,19 @@ function get_owned_quiz(int $quizId): array
 /** Counts of the user's quizzes by kind (for dashboard cards). */
 function quiz_kind_counts(int $uid): array
 {
+    return quiz_kind_counts_scoped($uid, null);
+}
+
+/**
+ * Counts by kind, scoped to an org ($orgId) or to the user's personal space
+ * ($orgId === null: quizzes with no org).
+ */
+function quiz_kind_counts_scoped(int $uid, ?int $orgId): array
+{
     $out = ['all' => 0, 'exam' => 0, 'poll' => 0, 'survey' => 0, 'form' => 0];
-    $rows = DB::all("SELECT kind, COUNT(*) AS c FROM quizzes WHERE user_id = ? GROUP BY kind", [$uid]);
+    if ($orgId) { $where = "org_id = ?"; $args = [$orgId]; }
+    else        { $where = "user_id = ? AND org_id IS NULL"; $args = [$uid]; }
+    $rows = DB::all("SELECT kind, COUNT(*) AS c FROM quizzes WHERE $where GROUP BY kind", $args);
     foreach ($rows as $r) {
         $out['all'] += (int)$r['c'];
         if (isset($out[$r['kind']])) $out[$r['kind']] = (int)$r['c'];
@@ -357,7 +368,7 @@ function handle_file_upload(string $field, int $quizId): ?string
 }
 
 /** Insert defaults for a new quiz of the given kind, return its id + share code. */
-function create_quiz(int $uid, string $kind, string $title): array
+function create_quiz(int $uid, string $kind, string $title, ?int $orgId = null): array
 {
     $kind = in_array($kind, ['exam','poll','survey','form'], true) ? $kind : 'exam';
     $code = unique_code('quizzes', 'share_code', 7);
@@ -368,10 +379,10 @@ function create_quiz(int $uid, string $kind, string $title): array
     $showCorrect  = $kind === 'exam' ? 1 : 0;
     $paginated    = $kind === 'form' ? 1 : 0;
     $id = DB::insert(
-        "INSERT INTO quizzes(user_id, title, description, share_code, kind, created_at, updated_at,
+        "INSERT INTO quizzes(user_id, org_id, title, description, share_code, kind, created_at, updated_at,
                              require_name, require_email, show_correct_answers, paginated, is_published)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,1)",
-        [$uid, $title, '', $code, $kind, $now, $now, $requireName, $requireEmail, $showCorrect, $paginated]
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1)",
+        [$uid, $orgId ?: null, $title, '', $code, $kind, $now, $now, $requireName, $requireEmail, $showCorrect, $paginated]
     );
     return ['id' => $id, 'share_code' => $code];
 }

@@ -58,6 +58,7 @@ function render_certificate_pdf(array $cert, string $quizTitle, string $verifyUr
     $title   = trim((string)($opts['title']   ?? '')) ?: 'Certificate of Achievement';
     $message = trim((string)($opts['message'] ?? '')) ?: 'has successfully completed';
     $signer  = trim((string)($opts['signer']  ?? ''));
+    $org     = trim((string)($opts['org']     ?? ''));
 
     $pdf = new MiniPDF(); // A4 landscape
     $W = $pdf->width();
@@ -67,6 +68,13 @@ function render_certificate_pdf(array $cert, string $quizTitle, string $verifyUr
     $pdf->rect(28, 28, $W - 56, $pdf->height() - 56, 3);
     $pdf->setColor(199, 210, 254);
     $pdf->rect(38, 38, $W - 76, $pdf->height() - 76, 1);
+
+    // Organization name across the top (org-branded certificates).
+    if ($org !== '') {
+        $pdf->setColor(79, 70, 229);
+        $pdf->setFont(true, 15);
+        $pdf->textCenter(78, strtoupper($org));
+    }
 
     $pdf->setColor(15, 23, 42);
     $pdf->setFont(true, 34);

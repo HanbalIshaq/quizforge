@@ -4,10 +4,16 @@ $km = kind_meta();
 $accentBg = ['brand'=>'bg-brand-600','amber'=>'bg-amber-500','emerald'=>'bg-emerald-600','purple'=>'bg-purple-600'];
 $accentText = ['brand'=>'text-brand-700','amber'=>'text-amber-600','emerald'=>'text-emerald-700','purple'=>'text-purple-700'];
 ?>
+<?php if (!empty($activeOrg)): ?>
+  <div class="mb-4 qf-alert qf-alert-info flex items-center justify-between gap-3">
+    <span>🏢 You're working in <strong><?= e($activeOrg['name']) ?></strong>. New quizzes belong to this organization and are shared with its members.</span>
+    <a href="<?= e(url('/admin/orgs/' . $activeOrg['id'])) ?>" class="qf-btn qf-btn-ghost qf-btn-sm shrink-0">Manage</a>
+  </div>
+<?php endif; ?>
 <div class="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
   <div>
     <h1 class="text-2xl sm:text-3xl font-bold">Welcome back, <?= e($u['name'] ?: explode('@',$u['email'])[0]) ?></h1>
-    <p class="text-sm text-slate-500 mt-1">Create a new assessment, or manage what you've built.</p>
+    <p class="text-sm text-slate-500 mt-1"><?= !empty($activeOrg) ? 'Managing ' . e($activeOrg['name']) . '\'s assessments.' : 'Create a new assessment, or manage what you\'ve built.' ?></p>
   </div>
   <form method="post" action="<?= e(url('/admin/seed-demo')) ?>" onsubmit="return confirm('Load a set of demo quizzes (exam, poll, survey, form) with sample responses? You can delete them anytime.')">
     <?= csrf_field() ?>

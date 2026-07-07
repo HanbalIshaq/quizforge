@@ -198,6 +198,7 @@ function create_schema(): void
         id $pk,
         name VARCHAR(255) NOT NULL,
         slug VARCHAR(64) UNIQUE NOT NULL,
+        cert_org_name VARCHAR(255),
         created_at $ts NOT NULL,
         created_by_user_id INT NOT NULL
     )$sfx";
@@ -278,7 +279,7 @@ function create_schema(): void
  * Current schema version. Bump when adding columns/tables that existing
  * installs need. run_migrations() applies anything missing.
  */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 /** Add a column if it's missing (portable across MySQL + SQLite). Returns
  *  true if it was actually added. */
@@ -337,6 +338,24 @@ function run_migrations(): void
 
     // v4: per-session toggle for revealing right/wrong to players during live.
     ensure_column('live_sessions', 'reveal_results', 'INT DEFAULT 1');
+
+    // v5: multi-tenant organizations. Tables live in the base install array;
+    // ensure they exist for installs created before they were added, plus the
+    // org-level certificate branding column and quizzes.org_id.
+    try {
+        DB::run("CREATE TABLE IF NOT EXISTS organizations (
+            id $pk, name VARCHAR(255) NOT NULL, slug VARCHAR(64) UNIQUE NOT NULL,
+            cert_org_name VARCHAR(255), created_at $ts NOT NULL, created_by_user_id INT NOT NULL)$sfx");
+        DB::run("CREATE TABLE IF NOT EXISTS org_members (
+            org_id INT NOT NULL, user_id INT NOT NULL, role VARCHAR(16) NOT NULL,
+            joined_at $ts NOT NULL, PRIMARY KEY (org_id, user_id))$sfx");
+        DB::run("CREATE TABLE IF NOT EXISTS org_invites (
+            id $pk, org_id INT NOT NULL, email VARCHAR(255) NOT NULL, role VARCHAR(16) NOT NULL,
+            token VARCHAR(255) UNIQUE NOT NULL, invited_by_user_id INT NOT NULL,
+            created_at $ts NOT NULL, expires_at $ts NOT NULL, accepted_at $ts)$sfx");
+    } catch (Throwable $e) {}
+    ensure_column('organizations', 'cert_org_name', 'VARCHAR(255)');
+    ensure_column('quizzes', 'org_id', 'INT');
 
     setting_set('schema_version', (string) SCHEMA_VERSION);
 }

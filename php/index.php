@@ -32,6 +32,7 @@ require __DIR__ . '/includes/certificates.php';
 require __DIR__ . '/includes/ai.php';
 require __DIR__ . '/includes/mailer.php';
 require __DIR__ . '/includes/live.php';
+require __DIR__ . '/includes/orgs.php';
 
 // Boot DB + session
 try {

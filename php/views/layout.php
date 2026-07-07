@@ -5,6 +5,8 @@ $flashes = take_flashes();
 $feat = features_all();
 $pageTitle = $title ?? (app_name() . ' — ' . app_tagline());
 $bare = !empty($bare); // focused mode for students (slim header, no footer nav)
+$navOrgs = $u ? user_orgs((int)$u['id']) : [];
+$navActiveOrg = $u ? active_org() : null;
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -52,6 +54,21 @@ $bare = !empty($bare); // focused mode for students (slim header, no footer nav)
       <div class="hidden md:flex items-center gap-3 text-sm">
         <?php if ($u): ?>
           <a href="<?= e(url('/admin')) ?>" class="hover:text-brand-700">My dashboard</a>
+          <?php if ($navOrgs): ?>
+            <form method="post" action="<?= e(url('/admin/orgs/switch')) ?>" class="inline-flex items-center">
+              <?= csrf_field() ?>
+              <input type="hidden" name="return" value="/admin">
+              <label class="sr-only" for="qf-org-switch">Workspace</label>
+              <select id="qf-org-switch" name="org_id" onchange="this.form.submit()" class="qf-input py-1 text-xs max-w-[11rem]" title="Switch workspace">
+                <option value="" <?= $navActiveOrg ? '' : 'selected' ?>>👤 Personal</option>
+                <?php foreach ($navOrgs as $o): ?>
+                  <option value="<?= (int)$o['id'] ?>" <?= $navActiveOrg && (int)$navActiveOrg['id']===(int)$o['id'] ? 'selected' : '' ?>>🏢 <?= e($o['name']) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </form>
+          <?php else: ?>
+            <a href="<?= e(url('/admin/orgs')) ?>" class="hover:text-brand-700">Teams</a>
+          <?php endif; ?>
           <?php if (!empty($u['is_super_admin'])): ?>
             <a href="<?= e(url('/admin/site')) ?>" class="hover:text-brand-700">Site admin</a>
           <?php endif; ?>
@@ -79,6 +96,7 @@ $bare = !empty($bare); // focused mode for students (slim header, no footer nav)
         <?php if ($u): ?>
           <div class="px-2 py-2 text-xs text-slate-500 truncate">Signed in as <span class="text-slate-700 font-medium"><?= e($u['name'] ?: $u['email']) ?></span></div>
           <a href="<?= e(url('/admin')) ?>" class="min-h-[44px] flex items-center text-slate-700 hover:bg-slate-50 px-2 rounded">My dashboard</a>
+          <a href="<?= e(url('/admin/orgs')) ?>" class="min-h-[44px] flex items-center text-slate-700 hover:bg-slate-50 px-2 rounded">Organizations<?= $navActiveOrg ? ' · ' . e($navActiveOrg['name']) : '' ?></a>
           <?php if (!empty($u['is_super_admin'])): ?>
             <a href="<?= e(url('/admin/site')) ?>" class="min-h-[44px] flex items-center text-slate-700 hover:bg-slate-50 px-2 rounded">Site admin</a>
           <?php endif; ?>
