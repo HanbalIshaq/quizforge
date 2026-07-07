@@ -25,8 +25,10 @@
     <p id="lq-multi-hint" class="text-xs text-slate-400 mt-3 hidden">Pick all that apply, then submit.</p>
     <button id="lq-submit" class="qf-btn qf-btn-primary qf-btn-block mt-4 hidden">Submit</button>
     <div id="lq-waiting" class="hidden text-center mt-6">
-      <div class="text-3xl mb-2" id="lq-feedback">✅</div>
-      <p class="text-slate-500 text-sm" id="lq-feedback-text">Answer locked in — hang tight.</p>
+      <div class="text-5xl mb-2" id="lq-feedback">🔒</div>
+      <p class="text-lg font-bold" id="lq-feedback-text">Answer locked in</p>
+      <p class="text-sm" id="lq-feedback-points"></p>
+      <p class="text-slate-400 text-xs mt-3">Waiting for the host…</p>
     </div>
   </div>
 
@@ -92,13 +94,29 @@
     fetch(answerUrl,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body})
       .then(function(r){return r.json();})
       .then(function(d){
-        var fb=document.getElementById('lq-feedback'), ft=document.getElementById('lq-feedback-text');
-        if(d && d.ok){ fb.textContent=d.correct?'✅':'❌'; ft.textContent=d.correct?('+'+d.award+' points!'):'Locked in.'; }
-        else { fb.textContent='✔'; ft.textContent='Locked in.'; }
+        if(d && d.ok){ showResult(d.correct===true, d.award||0); }
+        else { showResult(null, 0); } // couldn't grade (or already answered)
         document.getElementById('lq-submit').classList.add('hidden');
         document.getElementById('lq-options').classList.add('hidden');
         document.getElementById('lq-waiting').classList.remove('hidden');
       }).catch(function(){});
+  }
+
+  // correct=true -> right, false -> wrong, null -> unknown/locked
+  function showResult(correct, award){
+    var fb=document.getElementById('lq-feedback'),
+        ft=document.getElementById('lq-feedback-text'),
+        fp=document.getElementById('lq-feedback-points');
+    if(correct===true){
+      fb.textContent='🎉'; ft.textContent='Correct!'; ft.className='text-lg font-bold text-green-600';
+      fp.textContent='+'+award+' points'; fp.className='text-sm font-semibold text-green-600';
+    } else if(correct===false){
+      fb.textContent='❌'; ft.textContent='Not quite'; ft.className='text-lg font-bold text-red-600';
+      fp.textContent='+0 points'; fp.className='text-sm text-slate-400';
+    } else {
+      fb.textContent='🔒'; ft.textContent='Answer locked in'; ft.className='text-lg font-bold text-slate-700';
+      fp.textContent=''; fp.className='text-sm';
+    }
   }
 
   document.getElementById('lq-submit').addEventListener('click',function(){ if(picked.length) sendAnswer(); });
